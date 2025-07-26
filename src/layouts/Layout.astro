@@ -1,0 +1,28 @@
+---
+import Header from '../components/Header.astro';
+import '../styles/global.css';
+
+export interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<!DOCTYPE html>
+<html lang="fr" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="description" content="Application web pour visualiser les lignes de transport d'Île-de-France Mobilité" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+  </head>
+  <body class="min-h-full bg-gray-50">
+    <Header />
+    <main class="flex-1">
+      <slot />
+    </main>
+  </body>
+</html>

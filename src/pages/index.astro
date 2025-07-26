@@ -1,16 +1,31 @@
 ---
-
+import Layout from '../layouts/Layout.astro';
 ---
+<Layout title="Webtrain - Visualisation des lignes de transport">
+	<section class="max-w-7xl mx-auto px-4 py-10">
+		<h2>Carte intéractive des lignes de transport</h2>
+		<div id="map" class="w-full h-140 rounded-lg"></div>
+	</section>
+</Layout>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script is:inline>
+	document.addEventListener('DOMContentLoaded', function () {
+		// On déclare les coordonnées de Paris
+		let lat = 48.852969;
+		let lon = 2.349903;
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
-</html>
+		// On initialise la carte (en lui passant 'map' qui est l'ID de la DIV contenant la carte)
+		let map = L.map("map", {
+			zoom: 13,
+			center: [lat, lon]
+		});
+
+		// On ajoute le calque permettant d'afficher les images de la carte
+		L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
+			minZoom: 1,
+			maxZoom: 20,
+			attribution: 'données © <a href="//osm.org/copyright">OpenStreetMap</a>/ODbL - rendu <a href="//openstreetmap.fr">OSM France</a>'
+		}).addTo(map);
+	});
+</script>
