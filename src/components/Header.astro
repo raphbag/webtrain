@@ -1,58 +1,56 @@
 ---
 ---
 
-<header class="bg-blue-600 shadow-lg">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div class="flex justify-between items-center py-4">
-      <div class="flex items-center">
-        <h1 class="text-2xl font-bold text-white">
+<header class="header-modern">
+  <div class="header-container">
+    <div class="header-content">
+      <div class="title-bubble">
+        <h1 class="title-text">
           WebTrain
         </h1>
-        <span class="ml-3 text-blue-200 text-sm">
+        <span class="subtitle-text">
           Île-de-France Mobilité
         </span>
       </div>
       
-      <nav class="hidden md:flex space-x-8">
-        <a href="/" class="text-white hover:text-blue-200 transition-colors duration-200 font-medium">
+      <nav class="nav-desktop">
+        <a href="/" class="nav-link">
           Accueil
         </a>
-        <a href="/lignes" class="text-white hover:text-blue-200 transition-colors duration-200 font-medium">
+        <a href="/lignes" class="nav-link">
           Lignes
         </a>
-        <a href="/stations" class="text-white hover:text-blue-200 transition-colors duration-200 font-medium">
+        <a href="/stations" class="nav-link">
           Stations
         </a>
-        <a href="/horaires" class="text-white hover:text-blue-200 transition-colors duration-200 font-medium">
+        <a href="/horaires" class="nav-link">
           Horaires
         </a>
       </nav>
 
-      <!-- Menu mobile button -->
       <button 
         id="mobile-menu-button" 
-        class="md:hidden text-white hover:text-blue-200 focus:outline-none focus:text-blue-200"
+        class="mobile-menu-btn"
         aria-label="Menu principal"
       >
-        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg class="icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
       </button>
     </div>
 
-    <!-- Menu mobile -->
-    <div id="mobile-menu" class="md:hidden hidden pb-4">
-      <div class="flex flex-col space-y-2">
-        <a href="/" class="text-white hover:text-blue-200 transition-colors duration-200 py-2 px-3 rounded">
+    <div id="mobile-menu" class="mobile-menu">
+      <div class="mobile-menu-content">
+        <a href="/" class="mobile-nav-link">
           Accueil
         </a>
-        <a href="/lignes" class="text-white hover:text-blue-200 transition-colors duration-200 py-2 px-3 rounded">
+        <a href="/lignes" class="mobile-nav-link">
           Lignes
         </a>
-        <a href="/stations" class="text-white hover:text-blue-200 transition-colors duration-200 py-2 px-3 rounded">
+        <a href="/stations" class="mobile-nav-link">
           Stations
         </a>
-        <a href="/horaires" class="text-white hover:text-blue-200 transition-colors duration-200 py-2 px-3 rounded">
+        <a href="/horaires" class="mobile-nav-link">
           Horaires
         </a>
       </div>
@@ -60,10 +58,175 @@
   </div>
 </header>
 
+<style>
+  .header-modern {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .header-container {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    pointer-events: auto;
+  }
+
+  .title-bubble {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: rgba(46, 166, 251, 0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 12px 24px;
+    border-radius: 50px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    transition: all 0.3s ease;
+  }
+
+  .title-bubble:hover {
+    background: rgba(46, 166, 251, 0.25);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  }
+
+  .title-text {
+    font-size: 24px;
+    font-weight: 700;
+    color: white;
+    margin: 0;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  }
+
+  .subtitle-text {
+    font-size: 13px;
+    color: rgba(255, 255, 255, 0.9);
+    font-weight: 500;
+    text-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+  }
+
+  .nav-desktop {
+    display: none;
+    gap: 8px;
+  }
+
+  @media (min-width: 768px) {
+    .nav-desktop {
+      display: flex;
+    }
+  }
+
+  .nav-link {
+    padding: 10px 20px;
+    color: white;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 15px;
+    background: rgba(46, 166, 251, 0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-radius: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    transition: all 0.3s ease;
+    text-shadow: 0 1px 5px rgba(0, 0, 0, 0.4);
+  }
+
+  .nav-link:hover {
+    background: rgba(46, 166, 251, 0.25);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  }
+
+  .mobile-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+    color: white;
+    background: rgba(255, 255, 255, 0.12);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+  }
+
+  @media (min-width: 768px) {
+    .mobile-menu-btn {
+      display: none;
+    }
+  }
+
+  .mobile-menu-btn:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  .icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .mobile-menu {
+    display: none;
+    margin-top: 16px;
+  }
+
+  .mobile-menu.visible {
+    display: block;
+  }
+
+  @media (min-width: 768px) {
+    .mobile-menu {
+      display: none !important;
+    }
+  }
+
+  .mobile-menu-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    padding: 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  }
+
+  .mobile-nav-link {
+    padding: 12px 16px;
+    color: white;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    text-shadow: 0 1px 5px rgba(0, 0, 0, 0.2);
+  }
+
+  .mobile-nav-link:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+</style>
+
 <script>
   // Script pour le menu mobile
   document.getElementById('mobile-menu-button')?.addEventListener('click', () => {
     const menu = document.getElementById('mobile-menu');
-    menu?.classList.toggle('hidden');
+    menu?.classList.toggle('visible');
   });
 </script>

@@ -1,0 +1,248 @@
+---
+// Composant de panneau de filtres pour les lignes de transport
+---
+
+<div id="filterPanel" class="fixed top-[100px] left-5 w-80 max-h-[calc(100vh-120px)] bg-white/15 backdrop-blur-xl border border-white/20 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.1)] z-50 hidden flex-col transition-all duration-300 hover:bg-white/20 hover:shadow-[0_12px_40px_rgba(0,0,0,0.15)]">
+<div id="filterHeader" class="flex justify-between items-center p-5 border-b border-white/20 backdrop-blur-lg">
+<h3 class="m-0 text-lg font-bold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.2)]">Filtres</h3>
+<button id="toggleFilters" aria-label="Toggle filters" class="bg-white/20 border border-white/30 text-xl cursor-pointer p-0 w-8 h-8 flex items-center justify-center rounded-lg text-white transition-all duration-300 font-bold hover:bg-white/30 hover:scale-110">−</button>
+</div>
+<div id="filterContent" class="overflow-y-auto flex-1 p-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-lg [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb]:rounded-lg [&::-webkit-scrollbar-thumb:hover]:bg-white/40">
+<div class="flex gap-2 mb-4">
+<button id="selectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.15)]">Tout sélectionner</button>
+<button id="deselectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.15)]">Tout désélectionner</button>
+</div>
+<div id="filterCategories"></div>
+</div>
+</div>
+
+<script>
+	// Module pour gérer les filtres de lignes de transport
+	interface LineData {
+		routeId: string;
+		routeName: string;
+		routeColor: string;
+		routeType: string;
+		properties: any;
+		polylines: any[];
+		visible: boolean;
+		imageUrl?: string;
+	}
+
+	interface Categories {
+		[categoryName: string]: string[];
+	}
+
+	// Variables globales pour le filtre (accessibles depuis la page)
+	declare global {
+		interface Window {
+			filterPanelData: {
+				allLines: { [routeId: string]: LineData };
+				categories: Categories;
+				map: any | null;
+			};
+			buildFilterUI: () => void;
+			showFilterPanel: () => void;
+		}
+	}
+
+	// Initialiser le stockage global
+	if (!window.filterPanelData) {
+		window.filterPanelData = {
+			allLines: {},
+			categories: {},
+			map: null
+		};
+	}
+
+	// Fonction pour toggle le panneau de filtres
+	function toggleFilterPanel() {
+		const content = document.getElementById('filterContent');
+		const toggle = document.getElementById('toggleFilters');
+		
+		if (!content || !toggle) return;
+		
+		const isCollapsed = content.style.display === 'none';
+		content.style.display = isCollapsed ? 'block' : 'none';
+		toggle.textContent = isCollapsed ? '−' : '+';
+	}
+
+	// Fonction pour sélectionner toutes les lignes
+	function selectAllLines() {
+		const { allLines, categories } = window.filterPanelData;
+		Object.keys(allLines).forEach(routeId => toggleLine(routeId, true));
+		Object.keys(categories).forEach(updateCategoryCheckbox);
+	}
+
+	// Fonction pour désélectionner toutes les lignes
+	function deselectAllLines() {
+		const { allLines, categories } = window.filterPanelData;
+		Object.keys(allLines).forEach(routeId => toggleLine(routeId, false));
+		Object.keys(categories).forEach(updateCategoryCheckbox);
+	}
+
+	// Fonction pour afficher/masquer une ligne
+	function toggleLine(routeId: string, visible: boolean) {
+		const { allLines, map } = window.filterPanelData;
+		const line = allLines[routeId];
+		if (!line || !map) return;
+		
+		line.visible = visible;
+		line.polylines.forEach(polyline => {
+			polyline.setMap(visible ? map : null);
+		});
+		
+		// Mettre à jour la checkbox
+		const checkbox = document.querySelector(`.line-checkbox[data-route-id="${routeId}"]`) as HTMLInputElement;
+		if (checkbox) checkbox.checked = visible;
+	}
+
+	// Fonction pour mettre à jour la checkbox de catégorie
+	function updateCategoryCheckbox(categoryName: string) {
+		const { allLines, categories } = window.filterPanelData;
+		const routeIds = categories[categoryName];
+		if (!routeIds) return;
+		
+		const visibleCount = routeIds.filter(id => allLines[id]?.visible).length;
+		
+		const checkbox = document.querySelector(`.category-checkbox[data-category="${categoryName}"]`) as HTMLInputElement;
+		const countSpan = checkbox?.parentElement?.querySelector('.category-count');
+		
+		if (checkbox) {
+			checkbox.checked = visibleCount === routeIds.length;
+			checkbox.indeterminate = visibleCount > 0 && visibleCount < routeIds.length;
+		}
+		if (countSpan) {
+			countSpan.textContent = `${visibleCount}/${routeIds.length}`;
+		}
+	}
+
+	// Fonction pour construire l'UI des filtres
+	function buildFilterUI() {
+		const { allLines, categories } = window.filterPanelData;
+		const container = document.getElementById('filterCategories');
+		if (!container) return;
+		
+		container.innerHTML = '';
+		
+		// Ordre des catégories souhaité
+		const categoryOrder = ['Métro', 'RER', 'Transilien', 'TER', 'Tram'];
+		const sortedCategories = categoryOrder.filter(cat => categories[cat]);
+		
+		sortedCategories.forEach(categoryName => {
+			const categoryDiv = document.createElement('div');
+			categoryDiv.className = 'filter-category';
+			
+			const routeIds = categories[categoryName];
+			const visibleCount = routeIds.filter(id => allLines[id]?.visible).length;
+			
+			// Header de catégorie (réduit par défaut)
+			const header = document.createElement('div');
+			header.className = 'category-header collapsed';
+			header.innerHTML = `
+				<input type="checkbox" class="category-checkbox" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}">
+				<span class="category-name">${categoryName}</span>
+				<span class="category-count">${visibleCount}/${routeIds.length}</span>
+				<span class="category-toggle">▼</span>
+			`;
+			
+			// Liste des lignes
+			const linesList = document.createElement('div');
+			linesList.className = 'lines-list';
+			
+			// Trier les lignes par nom
+			const sortedLines = routeIds
+				.map(id => allLines[id])
+				.filter(line => line)
+				.sort((a, b) => {
+					const aNum = parseInt(a.routeName) || 0;
+					const bNum = parseInt(b.routeName) || 0;
+					if (aNum && bNum) return aNum - bNum;
+					return a.routeName.localeCompare(b.routeName);
+				});
+			
+			sortedLines.forEach(line => {
+				const lineItem = document.createElement('div');
+				lineItem.className = 'line-item';
+				
+				// Utiliser l'image si disponible, sinon l'indicateur de couleur
+				let lineVisual = '';
+				if (line.imageUrl) {
+					lineVisual = `<img src="${line.imageUrl}" alt="${line.routeName}" class="line-image" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+					              <div class="line-indicator" style="background-color: ${line.routeColor}; display: none;"></div>`;
+				} else {
+					lineVisual = `<div class="line-indicator" style="background-color: ${line.routeColor};"></div>`;
+				}
+				
+				lineItem.innerHTML = `
+					<input type="checkbox" class="line-checkbox" ${line.visible ? 'checked' : ''} data-route-id="${line.routeId}">
+					${lineVisual}
+					<span class="line-name">${line.routeName}</span>
+				`;
+				linesList.appendChild(lineItem);
+				
+				// Event listener pour la checkbox de ligne
+				const checkbox = lineItem.querySelector('.line-checkbox') as HTMLInputElement;
+				checkbox.addEventListener('change', (e) => {
+					const target = e.target as HTMLInputElement;
+					toggleLine(line.routeId, target.checked);
+					updateCategoryCheckbox(categoryName);
+				});
+			});
+			
+			categoryDiv.appendChild(header);
+			categoryDiv.appendChild(linesList);
+			container.appendChild(categoryDiv);
+			
+			// Event listener pour le header (toggle liste)
+			header.addEventListener('click', (e) => {
+				const target = e.target as HTMLElement;
+				// Empêcher la propagation si on clique sur la checkbox
+				if (target.classList.contains('category-checkbox')) {
+					e.stopPropagation();
+					const checkbox = target as HTMLInputElement;
+					const checked = checkbox.checked;
+					routeIds.forEach(id => toggleLine(id, checked));
+					updateCategoryCheckbox(categoryName);
+					return;
+				}
+				
+				// Toggle collapse pour tout autre clic
+				header.classList.toggle('collapsed');
+				linesList.classList.toggle('visible');
+			});
+		});
+	}
+
+	// Fonction pour afficher le panneau
+	function showFilterPanel() {
+		const panel = document.getElementById('filterPanel');
+		if (panel) {
+			panel.classList.add('visible');
+		}
+	}
+
+	// Exposer les fonctions globalement
+	window.buildFilterUI = buildFilterUI;
+	window.showFilterPanel = showFilterPanel;
+
+	// Initialiser les event listeners
+	document.addEventListener('DOMContentLoaded', () => {
+		const toggleBtn = document.getElementById('toggleFilters');
+		const selectAllBtn = document.getElementById('selectAllBtn');
+		const deselectAllBtn = document.getElementById('deselectAllBtn');
+		
+		if (toggleBtn) {
+			toggleBtn.addEventListener('click', toggleFilterPanel);
+		}
+		
+		if (selectAllBtn) {
+			selectAllBtn.addEventListener('click', selectAllLines);
+		}
+		
+		if (deselectAllBtn) {
+			deselectAllBtn.addEventListener('click', deselectAllLines);
+		}
+	});
+</script>
+

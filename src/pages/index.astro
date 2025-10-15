@@ -1,31 +1,348 @@
 ---
+import FilterPanel from '../components/FilterPanel.astro';
 import Layout from '../layouts/Layout.astro';
 ---
 <Layout title="Webtrain - Visualisation des lignes de transport">
-	<section class="max-w-7xl mx-auto px-4 py-10">
-		<h2>Carte intéractive des lignes de transport</h2>
-		<div id="map" class="w-full h-140 rounded-lg"></div>
-	</section>
-</Layout>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-<script is:inline>
-	document.addEventListener('DOMContentLoaded', function () {
-		// On déclare les coordonnées de Paris
-		let lat = 48.852969;
-		let lon = 2.349903;
+	<div id="map"></div>
+	
+	<!-- Contrôles principaux -->
+	<div id="controls">
+		<button id="loadLinesBtn">Charger les lignes de transport</button>
+		<div id="status"></div>
+	</div>
 
-		// On initialise la carte (en lui passant 'map' qui est l'ID de la DIV contenant la carte)
-		let map = L.map("map", {
-			zoom: 13,
-			center: [lat, lon]
+	<FilterPanel />
+</Layout>
+
+<style>
+	/* Always set the map height explicitly to define the size of the div element that contains the map. */
+	#map {
+		height: 100vh;
+		width: 100%;
+	}
+
+	#controls {
+		position: absolute;
+		top: 20px;
+		left: 50%;
+		transform: translateX(-50%);
+		z-index: 20;
+		background: white;
+		padding: 15px;
+		border-radius: 8px;
+		box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+		text-align: center;
+	}
+
+	#loadLinesBtn {
+		background: #4285f4;
+		color: white;
+		border: none;
+		padding: 10px 20px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 14px;
+		font-weight: 500;
+	}
+
+	#loadLinesBtn:hover {
+		background: #357ae8;
+	}
+
+	#loadLinesBtn:disabled {
+		background: #ccc;
+		cursor: not-allowed;
+	}
+
+	#status {
+		margin-top: 10px;
+		font-size: 12px;
+		color: #666;
+		font-weight: 500;
+	}
+</style>
+
+<script is:inline>
+	(g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({
+		key: "AIzaSyD4YVEYyDMupCWQG_uzbgE81KrvMRuLYLY",
+		v: "weekly",
+		internalUsageAttributionIds: "gmp_mcp_codeassist_v0.1_github"
+	});
+
+	// URLs des datasets IDFM
+	// Réseau ferré (métro, RER, tramway, train) - tracés précis
+	const FERRE_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/traces-du-reseau-ferre-idf/exports/geojson?limit=-1';
+	// Référentiel des lignes (pour les images)
+	const REFERENTIEL_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/referentiel-des-lignes/records?limit=-1';
+	
+	let map;
+	let allLines = {}; // Stocker toutes les lignes par route_id
+	let categories = {}; // Catégories de transport
+	let lineImages = {}; // Cache des images de lignes
+
+	async function initMap() {
+		// Coordonnées de Paris
+		const position = { lat: 48.852969, lng: 2.349903 };
+
+		// Charger la bibliothèque Maps
+		const { Map } = await google.maps.importLibrary("maps");
+
+		// Créer la carte
+		map = new Map(document.getElementById("map"), {
+			zoom: 11,
+			center: position,
+			mapId: "DEMO_MAP_ID"
 		});
 
-		// On ajoute le calque permettant d'afficher les images de la carte
-		L.tileLayer("https://{s}.tile.openstreetmap.fr/osmfr/{z}/{x}/{y}.png", {
-			minZoom: 1,
-			maxZoom: 20,
-			attribution: 'données © <a href="//osm.org/copyright">OpenStreetMap</a>/ODbL - rendu <a href="//openstreetmap.fr">OSM France</a>'
-		}).addTo(map);
-	});
+		// Initialiser le stockage global pour le filtre
+		window.filterPanelData = {
+			allLines: {},
+			categories: {},
+			map: map
+		};
+
+		// Activer le bouton de chargement des lignes
+		document.getElementById('loadLinesBtn').addEventListener('click', loadTransitLines);
+	}
+
+	async function loadTransitLines() {
+		const btn = document.getElementById('loadLinesBtn');
+		const status = document.getElementById('status');
+		
+		btn.disabled = true;
+		status.textContent = 'Chargement des référentiels...';
+
+		try {
+			// Récupérer d'abord le référentiel des lignes pour les images
+			status.textContent = 'Chargement du référentiel des lignes...';
+			const referentielResponse = await fetch(REFERENTIEL_URL);
+			if (referentielResponse.ok) {
+				const referentielData = await referentielResponse.json();
+				if (referentielData.results) {
+					referentielData.results.forEach(line => {
+						if (line.picto && line.picto.url) {
+							const lineId = line.id_line;
+							lineImages[lineId] = line.picto.url;
+							lineImages[`IDFM:${lineId}`] = line.picto.url;
+						}
+					});
+					console.log('Images des lignes chargées:', Object.keys(lineImages).length);
+				}
+			}
+			
+			// Réinitialiser les données
+			allLines = {};
+			categories = {};
+			let drawn = 0;
+			const bounds = new google.maps.LatLngBounds();
+			
+			// Charger le réseau ferré
+			status.textContent = 'Chargement du réseau ferré d\'Île-de-France...';
+			const ferreResponse = await fetch(FERRE_URL);
+			if (!ferreResponse.ok) {
+				throw new Error(`Erreur HTTP: ${ferreResponse.status}`);
+			}
+			
+			const ferreData = await ferreResponse.json();
+			console.log('Données réseau ferré reçues:', ferreData);
+			
+			if (ferreData.features && ferreData.features.length > 0) {
+				status.textContent = `${ferreData.features.length} lignes ferrées trouvées. Tracé en cours...`;
+				
+				for (const feature of ferreData.features) {
+					if (feature.geometry && feature.properties) {
+						const routeName = feature.properties.res_com || feature.properties.indice_lig || 'Ligne';
+						const routeColor = feature.properties.colourweb_hexa ? 
+						                  `#${feature.properties.colourweb_hexa}` : 
+						                  '#FF0000';
+						const mode = feature.properties.mode || '';
+						const reseau = feature.properties.reseau || '';
+						
+						// Déterminer la catégorie selon le mode et le réseau
+						let category = 'Autre';
+						let weight = 4;
+						
+						// Ordre de priorité pour la classification
+						if (feature.properties.metro === 1 || mode === 'METRO') {
+							category = 'Métro';
+							weight = 5;
+						} else if (feature.properties.tramway === 1 || mode === 'TRAMWAY') {
+							category = 'Tram';
+							weight = 4;
+						} else if (mode === 'TER') {
+							// TER a priorité sur tout (même si le réseau contient RER dans le nom)
+							category = 'TER';
+							weight = 4;
+						} else if (feature.properties.rer === 1 || (reseau.startsWith('RER') && mode !== 'TER')) {
+							// RER seulement si ce n'est pas un TER
+							category = 'RER';
+							weight = 5;
+						} else if (mode === 'TRAIN' || feature.properties.train === 1) {
+							// Les trains H, J, K, L, N, P, R, U, V sont des Transilien
+							if (routeName.match(/TRAIN [HJKLNPRUV]$/)) {
+								category = 'Transilien';
+							} else {
+								// Autres trains (probablement des TER régionaux)
+								category = 'TER';
+							}
+							weight = 4;
+						}
+						
+						// Utiliser routeName comme clé unique pour regrouper les segments
+						const uniqueKey = `${category}_${routeName}`;
+						
+						// Récupérer l'image de la ligne
+						const routeId = feature.properties.idrefligc || feature.properties.idrefliga;
+						const lineId = routeId?.replace('IDFM:', '') || '';
+						const lineImageUrl = feature.properties.picto_final || lineImages[routeId] || lineImages[lineId];
+						
+						const polylines = createPolylinesFromGeometry(
+							feature.geometry, 
+							routeColor, 
+							routeName, 
+							weight,
+							bounds,
+							feature.properties
+						);
+						
+						// Ne pas ajouter si pas de polylines
+						if (polylines.length === 0) continue;
+						
+						// Si la ligne existe déjà, ajouter les polylines
+						if (window.filterPanelData.allLines[uniqueKey]) {
+							window.filterPanelData.allLines[uniqueKey].polylines.push(...polylines);
+						} else {
+							// Créer une nouvelle entrée de ligne
+							window.filterPanelData.allLines[uniqueKey] = {
+								routeId: uniqueKey,
+								routeName,
+								routeColor,
+								routeType: category,
+								properties: feature.properties,
+								polylines,
+								visible: true,
+								imageUrl: lineImageUrl
+							};
+							
+							// Catégoriser (seulement la première fois)
+							if (!window.filterPanelData.categories[category]) {
+								window.filterPanelData.categories[category] = [];
+							}
+							window.filterPanelData.categories[category].push(uniqueKey);
+							drawn++;
+						}
+						
+						if (drawn % 20 === 0) {
+							status.textContent = `Réseau ferré: ${drawn} lignes...`;
+							await new Promise(resolve => setTimeout(resolve, 10));
+						}
+					}
+				}
+				
+				status.textContent = `✓ ${drawn} lignes ferrées affichées !`;
+				console.log(`Réseau ferré chargé: ${drawn} lignes`);
+				console.log('Catégories:', Object.keys(window.filterPanelData.categories));
+				
+				// Ajuster la vue pour afficher toutes les lignes
+				map.fitBounds(bounds);
+				
+				// Créer l'interface de filtres via le composant
+				if (window.buildFilterUI) {
+					window.buildFilterUI();
+				}
+				if (window.showFilterPanel) {
+					window.showFilterPanel();
+				}
+			} else {
+				status.textContent = 'Aucune ligne trouvée dans les données';
+			}
+		} catch (error) {
+			console.error('Erreur:', error);
+			status.textContent = `Erreur: ${error.message}`;
+		} finally {
+			btn.disabled = false;
+		}
+	}
+
+	function createPolylinesFromGeometry(geometry, color, name, weight, bounds, properties) {
+		const polylines = [];
+		
+		if (!geometry || !geometry.coordinates) return polylines;
+
+		// Parser les coordonnées selon le type de géométrie
+		if (geometry.type === 'LineString') {
+			const path = geometry.coordinates.map(coord => {
+				const latLng = new google.maps.LatLng(coord[1], coord[0]);
+				bounds.extend(latLng);
+				return latLng;
+			});
+			polylines.push(createPolyline(path, color, name, weight, properties));
+		} else if (geometry.type === 'MultiLineString') {
+			geometry.coordinates.forEach(lineString => {
+				const path = lineString.map(coord => {
+					const latLng = new google.maps.LatLng(coord[1], coord[0]);
+					bounds.extend(latLng);
+					return latLng;
+				});
+				polylines.push(createPolyline(path, color, name, weight, properties));
+			});
+		}
+		
+		return polylines;
+	}
+
+	function createPolyline(path, color, name, weight, properties) {
+		// Créer une polyline avec geodesic: false pour afficher exactement les coordonnées brutes
+		const polyline = new google.maps.Polyline({
+			path: path,
+			geodesic: false,
+			strokeColor: color,
+			strokeOpacity: 0.75,
+			strokeWeight: weight,
+			map: map,
+			clickable: true
+		});
+
+		// Ajouter info-bulle au clic
+		polyline.addListener('click', (event) => {
+			const routeType = getRouteTypeName(properties.route_type);
+			const infoWindow = new google.maps.InfoWindow({
+				content: `
+					<div style="padding: 10px; min-width: 200px;">
+						<h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">${name}</h3>
+						${routeType ? `<p style="margin: 4px 0; font-size: 13px; color: #666;">Type: ${routeType}</p>` : ''}
+						${properties.route_id ? `<p style="margin: 4px 0; font-size: 12px; color: #999;">ID: ${properties.route_id}</p>` : ''}
+						${properties.operatorname ? `<p style="margin: 4px 0; font-size: 12px; color: #999;">Opérateur: ${properties.operatorname}</p>` : ''}
+					</div>
+				`,
+				position: event.latLng
+			});
+			infoWindow.open(map);
+		});
+
+		return polyline;
+	}
+
+	// Fonction pour obtenir le nom du type de transport
+	function getRouteTypeName(routeType) {
+		const types = {
+			'0': 'Tramway',
+			'1': 'Métro',
+			'2': 'Train',
+			'3': 'Bus',
+			'4': 'Ferry',
+			'5': 'Téléphérique',
+			'6': 'Téléphérique suspendu',
+			'7': 'Funiculaire',
+			'Bus': 'Bus',
+			'Métro': 'Métro',
+			'Train': 'Train',
+			'Tramway': 'Tramway',
+			'RER': 'RER',
+			'VAL': 'VAL'
+		};
+		return types[routeType] || routeType || 'Transport';
+	}
+
+	initMap();
 </script>
