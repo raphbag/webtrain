@@ -2,15 +2,15 @@
 // Composant de panneau de filtres pour les lignes de transport
 ---
 
-<div id="filterPanel" class="fixed top-[100px] left-5 w-80 max-h-[calc(100vh-120px)] bg-white/15 backdrop-blur-xl border border-white/20 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.1)] z-50 hidden flex-col transition-all duration-300 hover:bg-white/20 hover:shadow-[0_12px_40px_rgba(0,0,0,0.15)]">
+<div id="filterPanel" class="fixed top-[100px] left-5 w-80 max-h-[calc(100vh-120px)] bg-white/15 backdrop-blur-xl border border-white/20 rounded-2xl shadow-lg z-50 hidden flex-col transition-all duration-300 hover:bg-white/20 hover:shadow-2xl">
 <div id="filterHeader" class="flex justify-between items-center p-5 border-b border-white/20 backdrop-blur-lg">
 <h3 class="m-0 text-lg font-bold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.2)]">Filtres</h3>
 <button id="toggleFilters" aria-label="Toggle filters" class="bg-white/20 border border-white/30 text-xl cursor-pointer p-0 w-8 h-8 flex items-center justify-center rounded-lg text-white transition-all duration-300 font-bold hover:bg-white/30 hover:scale-110">−</button>
 </div>
 <div id="filterContent" class="overflow-y-auto flex-1 p-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-lg [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb]:rounded-lg [&::-webkit-scrollbar-thumb:hover]:bg-white/40">
 <div class="flex gap-2 mb-4">
-<button id="selectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.15)]">Tout sélectionner</button>
-<button id="deselectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-[0_4px_12px_rgba(0,0,0,0.15)]">Tout désélectionner</button>
+<button id="selectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-md">Tout sélectionner</button>
+<button id="deselectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-md">Tout désélectionner</button>
 </div>
 <div id="filterCategories"></div>
 </div>
@@ -27,6 +27,8 @@
 		polylines: any[];
 		visible: boolean;
 		imageUrl?: string;
+		originalRouteId?: string;
+		stops?: any[];
 	}
 
 	interface Categories {
@@ -40,9 +42,11 @@
 				allLines: { [routeId: string]: LineData };
 				categories: Categories;
 				map: any | null;
+				allStops: { [routeId: string]: any[] };
 			};
 			buildFilterUI: () => void;
 			showFilterPanel: () => void;
+			updateStopsVisibility?: () => void;
 		}
 	}
 
@@ -51,7 +55,8 @@
 		window.filterPanelData = {
 			allLines: {},
 			categories: {},
-			map: null
+			map: null,
+			allStops: {}
 		};
 	}
 
@@ -62,9 +67,14 @@
 		
 		if (!content || !toggle) return;
 		
-		const isCollapsed = content.style.display === 'none';
-		content.style.display = isCollapsed ? 'block' : 'none';
-		toggle.textContent = isCollapsed ? '−' : '+';
+		const isHidden = content.classList.contains('hidden');
+		if (isHidden) {
+			content.classList.remove('hidden');
+			toggle.textContent = '−';
+		} else {
+			content.classList.add('hidden');
+			toggle.textContent = '+';
+		}
 	}
 
 	// Fonction pour sélectionner toutes les lignes
@@ -91,6 +101,11 @@
 		line.polylines.forEach(polyline => {
 			polyline.setMap(visible ? map : null);
 		});
+		
+		// Mettre à jour l'affichage des arrêts
+		if (window.updateStopsVisibility) {
+			window.updateStopsVisibility();
+		}
 		
 		// Mettre à jour la checkbox
 		const checkbox = document.querySelector(`.line-checkbox[data-route-id="${routeId}"]`) as HTMLInputElement;
@@ -131,24 +146,25 @@
 		
 		sortedCategories.forEach(categoryName => {
 			const categoryDiv = document.createElement('div');
-			categoryDiv.className = 'filter-category';
+			categoryDiv.className = 'mb-3 border border-white/25 rounded-xl overflow-hidden bg-white/10 backdrop-blur-xl transition-all duration-300 hover:bg-white/15 hover:border-white/35';
 			
 			const routeIds = categories[categoryName];
 			const visibleCount = routeIds.filter(id => allLines[id]?.visible).length;
 			
 			// Header de catégorie (réduit par défaut)
 			const header = document.createElement('div');
-			header.className = 'category-header collapsed';
+			header.className = 'flex items-center p-3 bg-white/5 cursor-pointer select-none transition-all duration-300 hover:bg-white/15';
+			header.classList.add('collapsed');
 			header.innerHTML = `
-				<input type="checkbox" class="category-checkbox" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}">
-				<span class="category-name">${categoryName}</span>
-				<span class="category-count">${visibleCount}/${routeIds.length}</span>
-				<span class="category-toggle">▼</span>
+				<input type="checkbox" class="category-checkbox mr-3 cursor-pointer accent-white" style="width: 1.125rem; height: 1.125rem;" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}">
+				<span class="category-name flex-1 font-bold text-sm text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)]">${categoryName}</span>
+				<span class="category-count text-xs text-white/80 mr-2 font-semibold bg-white/10 px-2 py-0.5 rounded">${visibleCount}/${routeIds.length}</span>
+				<span class="category-toggle text-base text-white/90 transition-transform duration-300" style="transform: rotate(-90deg);">▼</span>
 			`;
 			
 			// Liste des lignes
 			const linesList = document.createElement('div');
-			linesList.className = 'lines-list';
+			linesList.className = 'max-h-60 overflow-y-auto bg-white/5 hidden';
 			
 			// Trier les lignes par nom
 			const sortedLines = routeIds
@@ -163,21 +179,21 @@
 			
 			sortedLines.forEach(line => {
 				const lineItem = document.createElement('div');
-				lineItem.className = 'line-item';
+				lineItem.className = 'flex items-center py-2 px-3 border-t border-white/10 text-sm transition-all duration-200 hover:bg-white/15';
 				
 				// Utiliser l'image si disponible, sinon l'indicateur de couleur
 				let lineVisual = '';
 				if (line.imageUrl) {
-					lineVisual = `<img src="${line.imageUrl}" alt="${line.routeName}" class="line-image" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-					              <div class="line-indicator" style="background-color: ${line.routeColor}; display: none;"></div>`;
+					lineVisual = `<img src="${line.imageUrl}" alt="${line.routeName}" class="h-7 max-w-xs object-contain mr-2 flex-shrink-0 drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+					              <div class="rounded flex-shrink-0 shadow-sm hidden" style="width: 1.375rem; height: 1.375rem; background-color: ${line.routeColor}; display: none;"></div>`;
 				} else {
-					lineVisual = `<div class="line-indicator" style="background-color: ${line.routeColor};"></div>`;
+					lineVisual = `<div class="rounded flex-shrink-0 shadow-sm" style="width: 1.375rem; height: 1.375rem; background-color: ${line.routeColor};"></div>`;
 				}
 				
 				lineItem.innerHTML = `
-					<input type="checkbox" class="line-checkbox" ${line.visible ? 'checked' : ''} data-route-id="${line.routeId}">
+					<input type="checkbox" class="line-checkbox mr-2 cursor-pointer accent-white" style="width: 1rem; height: 1rem;" ${line.visible ? 'checked' : ''} data-route-id="${line.routeId}">
 					${lineVisual}
-					<span class="line-name">${line.routeName}</span>
+					<span class="line-name flex-1 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)]">${line.routeName}</span>
 				`;
 				linesList.appendChild(lineItem);
 				
@@ -209,7 +225,14 @@
 				
 				// Toggle collapse pour tout autre clic
 				header.classList.toggle('collapsed');
-				linesList.classList.toggle('visible');
+				const toggle = header.querySelector('.category-toggle') as HTMLElement | null;
+				if (header.classList.contains('collapsed')) {
+					linesList.classList.add('hidden');
+					if (toggle) toggle.style.transform = 'rotate(-90deg)';
+				} else {
+					linesList.classList.remove('hidden');
+					if (toggle) toggle.style.transform = '';
+				}
 			});
 		});
 	}
@@ -218,7 +241,8 @@
 	function showFilterPanel() {
 		const panel = document.getElementById('filterPanel');
 		if (panel) {
-			panel.classList.add('visible');
+			panel.classList.remove('hidden');
+			panel.classList.add('flex');
 		}
 	}
 

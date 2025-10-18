@@ -2,65 +2,22 @@
 import FilterPanel from '../components/FilterPanel.astro';
 import Layout from '../layouts/Layout.astro';
 ---
+
+<script>
+	import '../scripts/markerClusterer.js';
+</script>
+
 <Layout title="Webtrain - Visualisation des lignes de transport">
-	<div id="map"></div>
+	<div id="map" class="h-screen w-full"></div>
 	
 	<!-- Contrôles principaux -->
-	<div id="controls">
-		<button id="loadLinesBtn">Charger les lignes de transport</button>
-		<div id="status"></div>
+	<div id="controls" class="absolute top-5 left-1/2 -translate-x-1/2 z-20 bg-white px-4 py-3 rounded-lg shadow-md text-center">
+		<button id="loadLinesBtn" class="bg-blue-600 text-white border-0 px-5 py-2.5 rounded cursor-pointer text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">Charger les lignes de transport</button>
+		<div id="status" class="mt-2.5 text-xs text-gray-600 font-medium"></div>
 	</div>
 
 	<FilterPanel />
 </Layout>
-
-<style>
-	/* Always set the map height explicitly to define the size of the div element that contains the map. */
-	#map {
-		height: 100vh;
-		width: 100%;
-	}
-
-	#controls {
-		position: absolute;
-		top: 20px;
-		left: 50%;
-		transform: translateX(-50%);
-		z-index: 20;
-		background: white;
-		padding: 15px;
-		border-radius: 8px;
-		box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-		text-align: center;
-	}
-
-	#loadLinesBtn {
-		background: #4285f4;
-		color: white;
-		border: none;
-		padding: 10px 20px;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 14px;
-		font-weight: 500;
-	}
-
-	#loadLinesBtn:hover {
-		background: #357ae8;
-	}
-
-	#loadLinesBtn:disabled {
-		background: #ccc;
-		cursor: not-allowed;
-	}
-
-	#status {
-		margin-top: 10px;
-		font-size: 12px;
-		color: #666;
-		font-weight: 500;
-	}
-</style>
 
 <script is:inline>
 	(g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({
@@ -74,32 +31,46 @@ import Layout from '../layouts/Layout.astro';
 	const FERRE_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/traces-du-reseau-ferre-idf/exports/geojson?limit=-1';
 	// Référentiel des lignes (pour les images)
 	const REFERENTIEL_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/referentiel-des-lignes/records?limit=-1';
+	// Arrêts des lignes - format GeoJSON
+	const ARRETS_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/arrets-lignes/exports/geojson?limit=-1';
 	
 	let map;
 	let allLines = {}; // Stocker toutes les lignes par route_id
 	let categories = {}; // Catégories de transport
 	let lineImages = {}; // Cache des images de lignes
+	let allStops = {}; // Stocker tous les arrêts par ligne
+	const MIN_ZOOM_FOR_STOPS = 15; // Zoom minimum pour afficher les arrêts (très zoomé)
 
 	async function initMap() {
 		// Coordonnées de Paris
 		const position = { lat: 48.852969, lng: 2.349903 };
 
-		// Charger la bibliothèque Maps
+		// Charger les bibliothèques Maps et Marker
 		const { Map } = await google.maps.importLibrary("maps");
+		const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
 
 		// Créer la carte
 		map = new Map(document.getElementById("map"), {
 			zoom: 11,
 			center: position,
-			mapId: "DEMO_MAP_ID"
+			mapId: "MAP_IDF"
 		});
+		
+		// Stocker les classes pour utilisation ultérieure
+		window.markerLibrary = { AdvancedMarkerElement, PinElement };
 
 		// Initialiser le stockage global pour le filtre
 		window.filterPanelData = {
 			allLines: {},
 			categories: {},
-			map: map
+			map: map,
+			allStops: {}
 		};
+		
+		// Afficher les arrêts uniquement si très zoomé et dans la zone visible
+		map.addListener('bounds_changed', () => {
+			updateStopsVisibility();
+		});
 
 		// Activer le bouton de chargement des lignes
 		document.getElementById('loadLinesBtn').addEventListener('click', loadTransitLines);
@@ -125,6 +96,16 @@ import Layout from '../layouts/Layout.astro';
 							lineImages[lineId] = line.picto.url;
 							lineImages[`IDFM:${lineId}`] = line.picto.url;
 						}
+						// Essayer aussi picto_final s'il existe
+						if (line.picto_final) {
+							const lineId = line.id_line;
+							// Si c'est un chemin relatif, construire l'URL complète
+							const imageUrl = line.picto_final.startsWith('http') 
+								? line.picto_final 
+								: `https://data.iledefrance-mobilites.fr${line.picto_final}`;
+							lineImages[lineId] = imageUrl;
+							lineImages[`IDFM:${lineId}`] = imageUrl;
+						}
 					});
 					console.log('Images des lignes chargées:', Object.keys(lineImages).length);
 				}
@@ -133,6 +114,7 @@ import Layout from '../layouts/Layout.astro';
 			// Réinitialiser les données
 			allLines = {};
 			categories = {};
+			allStops = {};
 			let drawn = 0;
 			const bounds = new google.maps.LatLngBounds();
 			
@@ -194,7 +176,17 @@ import Layout from '../layouts/Layout.astro';
 						// Récupérer l'image de la ligne
 						const routeId = feature.properties.idrefligc || feature.properties.idrefliga;
 						const lineId = routeId?.replace('IDFM:', '') || '';
-						const lineImageUrl = feature.properties.picto_final || lineImages[routeId] || lineImages[lineId];
+						
+						// Essayer plusieurs stratégies pour trouver l'image
+						let lineImageUrl = lineImages[routeId] || lineImages[lineId];
+						
+						// Si picto_final existe et semble être une URL relative, construire l'URL complète
+						if (!lineImageUrl && feature.properties.picto_final) {
+							const pictoPath = feature.properties.picto_final;
+							lineImageUrl = pictoPath.startsWith('http') 
+								? pictoPath 
+								: `https://data.iledefrance-mobilites.fr${pictoPath}`;
+						}
 						
 						const polylines = createPolylinesFromGeometry(
 							feature.geometry, 
@@ -211,6 +203,10 @@ import Layout from '../layouts/Layout.astro';
 						// Si la ligne existe déjà, ajouter les polylines
 						if (window.filterPanelData.allLines[uniqueKey]) {
 							window.filterPanelData.allLines[uniqueKey].polylines.push(...polylines);
+							// Mettre à jour l'originalRouteId si pas encore défini
+							if (!window.filterPanelData.allLines[uniqueKey].originalRouteId && routeId) {
+								window.filterPanelData.allLines[uniqueKey].originalRouteId = routeId;
+							}
 						} else {
 							// Créer une nouvelle entrée de ligne
 							window.filterPanelData.allLines[uniqueKey] = {
@@ -221,7 +217,8 @@ import Layout from '../layouts/Layout.astro';
 								properties: feature.properties,
 								polylines,
 								visible: true,
-								imageUrl: lineImageUrl
+								imageUrl: lineImageUrl,
+								originalRouteId: routeId // Garder l'ID original pour matcher avec les arrêts
 							};
 							
 							// Catégoriser (seulement la première fois)
@@ -243,6 +240,10 @@ import Layout from '../layouts/Layout.astro';
 				console.log(`Réseau ferré chargé: ${drawn} lignes`);
 				console.log('Catégories:', Object.keys(window.filterPanelData.categories));
 				
+				// Charger les arrêts
+				status.textContent = 'Chargement des arrêts...';
+				await loadStops(bounds);
+				
 				// Ajuster la vue pour afficher toutes les lignes
 				map.fitBounds(bounds);
 				
@@ -253,6 +254,8 @@ import Layout from '../layouts/Layout.astro';
 				if (window.showFilterPanel) {
 					window.showFilterPanel();
 				}
+				
+				status.textContent = `✓ ${drawn} lignes ferrées et arrêts affichés !`;
 			} else {
 				status.textContent = 'Aucune ligne trouvée dans les données';
 			}
@@ -262,6 +265,200 @@ import Layout from '../layouts/Layout.astro';
 		} finally {
 			btn.disabled = false;
 		}
+	}
+
+	async function loadStops(bounds) {
+		try {
+			const response = await fetch(ARRETS_URL);
+			if (!response.ok) {
+				throw new Error(`Erreur HTTP arrêts: ${response.status}`);
+			}
+			
+			const data = await response.json();
+			console.log('Données arrêts GeoJSON reçues:', data);
+			
+			if (data.features && data.features.length > 0) {
+				console.log('Nombre d\'arrêts:', data.features.length);
+				let stopsLoaded = 0;
+				let stopsSkipped = 0;
+				const status = document.getElementById('status');
+				
+				// Créer un mapping des lignes par leur ID original
+				const linesByOriginalId = {};
+				Object.values(window.filterPanelData.allLines).forEach(line => {
+					if (line.originalRouteId) {
+						// Ajouter avec l'ID tel quel
+						linesByOriginalId[line.originalRouteId] = line;
+						
+						// Ajouter aussi avec/sans le préfixe IDFM: pour maximiser les chances de match
+						if (line.originalRouteId.startsWith('IDFM:')) {
+							const withoutPrefix = line.originalRouteId.replace('IDFM:', '');
+							linesByOriginalId[withoutPrefix] = line;
+						} else {
+							linesByOriginalId[`IDFM:${line.originalRouteId}`] = line;
+						}
+					}
+				});
+				
+				console.log('Lignes disponibles:', Object.keys(linesByOriginalId).length);
+				console.log('IDs de lignes:', Object.keys(linesByOriginalId).slice(0, 10));
+				
+				// Examiner la structure du premier arrêt
+				if (data.features.length > 0) {
+					console.log('Structure du premier arrêt:', data.features[0]);
+					console.log('ID de la ligne:', data.features[0].properties.id);
+					console.log('Cette ligne existe?', linesByOriginalId[data.features[0].properties.id]);
+				}
+				
+				for (const feature of data.features) {
+					// GeoJSON avec geometry.type = "Point" et geometry.coordinates = [lng, lat]
+					if (feature.geometry && feature.geometry.type === 'Point' && feature.properties) {
+						const properties = feature.properties;
+						const [lng, lat] = feature.geometry.coordinates;
+						
+						// 'id' correspond à la ligne (ex: IDFM:C01371)
+						// Essayer avec et sans le préfixe IDFM:
+						let routeId = properties.id;
+						let line = linesByOriginalId[routeId];
+						
+						// Si pas trouvé, essayer sans le préfixe IDFM:
+						if (!line && routeId && routeId.startsWith('IDFM:')) {
+							const routeIdWithoutPrefix = routeId.replace('IDFM:', '');
+							line = linesByOriginalId[routeIdWithoutPrefix];
+						}
+						
+						// Si toujours pas trouvé, essayer avec le préfixe IDFM:
+						if (!line && routeId && !routeId.startsWith('IDFM:')) {
+							line = linesByOriginalId[`IDFM:${routeId}`];
+						}
+						
+						if (!line) {
+							stopsSkipped++;
+							if (stopsSkipped < 5) {
+								console.log('Arrêt ignoré - ligne non trouvée:', routeId, properties.stop_name);
+							}
+							continue; // Ignorer les arrêts de lignes non chargées
+						}
+						
+						// Créer le marker
+						const marker = createStopMarker(
+							{ lat: parseFloat(lat), lng: parseFloat(lng) },
+							properties,
+							line
+						);
+						
+						if (stopsLoaded < 5) {
+							console.log('Marker créé:', marker, 'pour arrêt:', properties.stop_name, 'ligne:', line.routeName);
+						}
+						
+						// Stocker le marker dans allStops par ligne
+						if (!window.filterPanelData.allStops[line.routeId]) {
+							window.filterPanelData.allStops[line.routeId] = [];
+						}
+						window.filterPanelData.allStops[line.routeId].push(marker);
+						
+						// Ajouter à la ligne
+						if (!line.stops) {
+							line.stops = [];
+						}
+						line.stops.push(marker);
+						
+						stopsLoaded++;
+						
+						if (stopsLoaded % 100 === 0) {
+							status.textContent = `Arrêts: ${stopsLoaded}...`;
+							await new Promise(resolve => setTimeout(resolve, 5));
+						}
+					}
+				}
+				
+				console.log(`${stopsLoaded} arrêts chargés, ${stopsSkipped} ignorés`);
+				
+				// Afficher initialement selon le zoom
+				updateStopsVisibility();
+			}
+		} catch (error) {
+			console.error('Erreur chargement arrêts:', error);
+		}
+	}
+	
+	function updateStopsVisibility() {
+		if (!map) return;
+		
+		const currentZoom = map.getZoom();
+		const shouldShowStops = currentZoom >= MIN_ZOOM_FOR_STOPS;
+		
+		if (!shouldShowStops) {
+			// Masquer tous les markers
+			Object.values(window.filterPanelData.allStops || {}).forEach(stops => {
+				stops.forEach(marker => {
+					marker.map = null;
+				});
+			});
+			return;
+		}
+		
+		// Obtenir les limites visibles de la carte
+		const bounds = map.getBounds();
+		if (!bounds) return;
+		
+		// Afficher uniquement les markers visibles des lignes actives
+		Object.entries(window.filterPanelData.allStops || {}).forEach(([routeId, stops]) => {
+			const line = window.filterPanelData.allLines[routeId];
+			const lineVisible = line && line.visible;
+			
+			stops.forEach(marker => {
+				// Afficher uniquement si la ligne est visible ET le marker est dans les limites
+				if (lineVisible && bounds.contains(marker.position)) {
+					marker.map = map;
+				} else {
+					marker.map = null;
+				}
+			});
+		});
+	}
+
+	function createStopMarker(position, properties, line) {
+		if (!window.markerLibrary) {
+			console.error('markerLibrary not available yet');
+			return null;
+		}
+		
+		const { PinElement, AdvancedMarkerElement } = window.markerLibrary;
+		
+		// Créer un élément pin personnalisé avec la couleur de la ligne
+		const pinElement = new PinElement({
+			background: line.routeColor,
+			borderColor: '#FFFFFF',
+			glyphColor: '#FFFFFF',
+			scale: 0.7
+		});
+		
+		// Ne pas ajouter à la carte initialement
+		const marker = new AdvancedMarkerElement({
+			position,
+			map: null,
+			title: properties.stop_name || 'Arrêt',
+			content: pinElement.element,
+			gmpClickable: true
+		});
+
+		// Info-bulle au clic
+		marker.addListener('click', () => {
+			const infoWindow = new google.maps.InfoWindow({
+				content: `
+					<div style="padding: 10px; min-width: 150px;">
+						<h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600;">${properties.stop_name || 'Arrêt'}</h4>
+						<p style="margin: 4px 0; font-size: 12px; color: #666;">Ligne: ${line.routeName}</p>
+						${properties.stop_id ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">ID: ${properties.stop_id}</p>` : ''}
+					</div>
+				`,
+				position
+			});
+			infoWindow.open(map);
+		});
+
+		return marker;
 	}
 
 	function createPolylinesFromGeometry(geometry, color, name, weight, bounds, properties) {
@@ -343,6 +540,9 @@ import Layout from '../layouts/Layout.astro';
 		};
 		return types[routeType] || routeType || 'Transport';
 	}
+
+	// Exposer la fonction updateStopsVisibility globalement pour le FilterPanel
+	window.updateStopsVisibility = updateStopsVisibility;
 
 	initMap();
 </script>
