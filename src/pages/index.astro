@@ -281,6 +281,7 @@ import Layout from '../layouts/Layout.astro';
 				console.log('Nombre d\'arrêts:', data.features.length);
 				let stopsLoaded = 0;
 				let stopsSkipped = 0;
+				let stopsDuplicated = 0;
 				const status = document.getElementById('status');
 				
 				// Créer un mapping des lignes par leur ID original
@@ -309,6 +310,9 @@ import Layout from '../layouts/Layout.astro';
 					console.log('ID de la ligne:', data.features[0].properties.id);
 					console.log('Cette ligne existe?', linesByOriginalId[data.features[0].properties.id]);
 				}
+				
+				// Tracker les arrêts déjà ajoutés par nom et ligne pour éviter les doublons
+				const seenStops = new Map();
 				
 				for (const feature of data.features) {
 					// GeoJSON avec geometry.type = "Point" et geometry.coordinates = [lng, lat]
@@ -339,6 +343,17 @@ import Layout from '../layouts/Layout.astro';
 							}
 							continue; // Ignorer les arrêts de lignes non chargées
 						}
+						
+						// Créer une clé unique pour cet arrêt basée sur son nom et sa ligne
+						const stopName = properties.stop_name || 'Arrêt inconnu';
+						const stopKey = `${line.routeId}|${stopName}`;
+						
+						// Vérifier si cet arrêt avec ce nom a déjà été ajouté pour cette ligne
+						if (seenStops.has(stopKey)) {
+							stopsDuplicated++;
+							continue;
+						}
+						seenStops.set(stopKey, true);
 						
 						// Créer le marker
 						const marker = createStopMarker(
@@ -372,7 +387,7 @@ import Layout from '../layouts/Layout.astro';
 					}
 				}
 				
-				console.log(`${stopsLoaded} arrêts chargés, ${stopsSkipped} ignorés`);
+				console.log(`${stopsLoaded} arrêts chargés, ${stopsSkipped} ignorés, ${stopsDuplicated} doublons supprimés`);
 				
 				// Afficher initialement selon le zoom
 				updateStopsVisibility();
