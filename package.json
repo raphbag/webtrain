@@ -10,8 +10,8 @@
   },
   "dependencies": {
     "@googlemaps/markerclusterer": "^2.6.2",
-    "@tailwindcss/vite": "^4.1.11",
+    "@tailwindcss/vite": "^4.1.14",
     "astro": "^5.14.5",
-    "tailwindcss": "^4.1.11"
+    "tailwindcss": "^4.1.14"
   }
 }
