@@ -1,10 +1,17 @@
----
+﻿---
 import FilterPanel from '../components/FilterPanel.astro';
 import Layout from '../layouts/Layout.astro';
 ---
 
 <script>
 	import '../scripts/markerClusterer.js';
+	import { fetchStopSchedules, generateSchedulesHTML } from '../scripts/stopMonitoring.js';
+	
+	// Exposer globalement pour utilisation dans le code inline
+	// @ts-ignore: extending window with runtime-only properties
+	window.fetchStopSchedules = fetchStopSchedules;
+	// @ts-ignore: extending window with runtime-only properties
+	window.generateSchedulesHTML = generateSchedulesHTML;
 </script>
 
 <Layout title="Webtrain - Visualisation des lignes de transport">
@@ -32,7 +39,7 @@ import Layout from '../layouts/Layout.astro';
 	// Référentiel des lignes (pour les images)
 	const REFERENTIEL_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/referentiel-des-lignes/records?limit=-1';
 	// Arrêts des lignes - format GeoJSON
-	const ARRETS_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/arrets-lignes/exports/geojson?limit=-1';
+	const ARRETS_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/arrets-lignes/exports/geojson?where=mode != \'Bus\'';
 	
 	let map;
 	let allLines = {}; // Stocker toutes les lignes par route_id
@@ -53,7 +60,16 @@ import Layout from '../layouts/Layout.astro';
 		map = new Map(document.getElementById("map"), {
 			zoom: 11,
 			center: position,
-			mapId: "MAP_IDF"
+			mapId: "MAP_IDF",
+			disableDefaultUI: true,
+			zoomControl: true,
+			streetViewControl: true,
+			fullscreenControl: true,
+			mapTypeControl: true,
+			mapTypeControlOptions: {
+				position: google.maps.ControlPosition.TOP_RIGHT,
+				mapTypeIds: ['roadmap', 'satellite']
+			}
 		});
 		
 		// Stocker les classes pour utilisation ultérieure
@@ -459,18 +475,52 @@ import Layout from '../layouts/Layout.astro';
 		});
 
 		// Info-bulle au clic
-		marker.addListener('click', () => {
+		marker.addListener('click', async () => {
 			const infoWindow = new google.maps.InfoWindow({
 				content: `
-					<div style="padding: 10px; min-width: 150px;">
+					<div style="padding: 10px; min-width: 250px;">
 						<h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600;">${properties.stop_name || 'Arrêt'}</h4>
 						<p style="margin: 4px 0; font-size: 12px; color: #666;">Ligne: ${line.routeName}</p>
 						${properties.stop_id ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">ID: ${properties.stop_id}</p>` : ''}
+						<div id="schedules-content" style="margin-top: 12px;">
+							<p style="font-size: 11px; color: #999;">Chargement des horaires...</p>
+						</div>
 					</div>
 				`,
 				position
 			});
 			infoWindow.open(map);
+			
+			// Fonction pour charger les horaires
+			const loadSchedules = async () => {
+				if (properties.stop_id && line.originalRouteId) {
+					try {
+						const schedules = await window.fetchStopSchedules(properties.stop_id, line.originalRouteId, line.routeType);
+						const schedulesHTML = window.generateSchedulesHTML(schedules, line.routeType);
+						const container = document.getElementById('schedules-content');
+						if (container) {
+							container.innerHTML = schedulesHTML;
+						}
+					} catch (error) {
+						console.error('Erreur chargement horaires:', error);
+						const container = document.getElementById('schedules-content');
+						if (container) {
+							container.innerHTML = '<p style="font-size: 11px; color: #999;">Erreur de chargement</p>';
+						}
+					}
+				}
+			};
+			
+			// Charger les horaires immédiatement
+			loadSchedules();
+			
+			// Actualiser toutes les 10 secondes
+			const refreshInterval = setInterval(loadSchedules, 10000);
+			
+			// Arrêter l'actualisation quand l'info-bulle est fermée
+			google.maps.event.addListener(infoWindow, 'closeclick', () => {
+				clearInterval(refreshInterval);
+			});
 		});
 
 		return marker;

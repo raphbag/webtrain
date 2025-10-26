@@ -2,18 +2,18 @@
 // Composant de panneau de filtres pour les lignes de transport
 ---
 
-<div id="filterPanel" class="fixed top-[100px] left-5 w-80 max-h-[calc(100vh-120px)] bg-white/15 backdrop-blur-xl border border-white/20 rounded-2xl shadow-lg z-50 hidden flex-col transition-all duration-300 hover:bg-white/20 hover:shadow-2xl">
-<div id="filterHeader" class="flex justify-between items-center p-5 border-b border-white/20 backdrop-blur-lg">
-<h3 class="m-0 text-lg font-bold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.2)]">Filtres</h3>
-<button id="toggleFilters" aria-label="Toggle filters" class="bg-white/20 border border-white/30 text-xl cursor-pointer p-0 w-8 h-8 flex items-center justify-center rounded-lg text-white transition-all duration-300 font-bold hover:bg-white/30 hover:scale-110">−</button>
-</div>
-<div id="filterContent" class="overflow-y-auto flex-1 p-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-lg [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb]:rounded-lg [&::-webkit-scrollbar-thumb:hover]:bg-white/40">
-<div class="flex gap-2 mb-4">
-<button id="selectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-md">Tout sélectionner</button>
-<button id="deselectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/15 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:-translate-y-px hover:shadow-md">Tout désélectionner</button>
-</div>
-<div id="filterCategories"></div>
-</div>
+<div id="filterPanel" class="fixed top-[100px] left-5 w-80 max-h-[calc(100vh-120px)] bg-slate-400/15 backdrop-blur-xl -webkit-backdrop-blur-xl border border-white/20 rounded-2xl shadow-lg z-50 hidden flex-col transition-all duration-300 hover:bg-slate-400/25 hover:shadow-2xl [&_input[type=checkbox]]:appearance-none [&_input[type=checkbox]]:w-4 [&_input[type=checkbox]]:h-4 [&_input[type=checkbox]]:border-2 [&_input[type=checkbox]]:border-white/60 [&_input[type=checkbox]]:rounded [&_input[type=checkbox]]:bg-white/10 [&_input[type=checkbox]]:cursor-pointer [&_input[type=checkbox]]:flex-shrink-0 [&_input[type=checkbox]:checked]:bg-white/90 [&_input[type=checkbox]:checked]:border-white/90 [&_input[type=checkbox]]:relative [&_input[type=checkbox]:checked]:after:content-['✓'] [&_input[type=checkbox]:checked]:after:absolute [&_input[type=checkbox]:checked]:after:top-1/2 [&_input[type=checkbox]:checked]:after:left-1/2 [&_input[type=checkbox]:checked]:after:-translate-x-1/2 [&_input[type=checkbox]:checked]:after:-translate-y-1/2 [&_input[type=checkbox]:checked]:after:text-slate-800 [&_input[type=checkbox]:checked]:after:text-xs [&_input[type=checkbox]:checked]:after:font-bold">
+	<div id="filterHeader" class="flex justify-between items-center p-5 border-b border-white/20 backdrop-blur-lg">
+		<h3 class="m-0 text-lg font-bold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.2)]">Filtres</h3>
+		<button id="toggleFilters" aria-label="Toggle filters" class="bg-white/20 border border-white/30 text-xl cursor-pointer p-0 w-8 h-8 flex items-center justify-center rounded-lg text-white transition-all duration-300 font-bold hover:bg-white/30 hover:scale-110">−</button>
+	</div>
+	<div id="filterContent" class="overflow-y-auto flex-1 p-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-lg [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb]:rounded-lg [&::-webkit-scrollbar-thumb:hover]:bg-white/40">
+		<div class="flex gap-2 mb-4">
+			<button id="selectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/30 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:scale-105">Tout sélectionner</button>
+			<button id="deselectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/30 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:scale-105">Tout désélectionner</button>
+		</div>
+		<div id="filterCategories"></div>
+	</div>
 </div>
 
 <script>
@@ -156,7 +156,7 @@
 			header.className = 'flex items-center p-3 bg-white/5 cursor-pointer select-none transition-all duration-300 hover:bg-white/15';
 			header.classList.add('collapsed');
 			header.innerHTML = `
-				<input type="checkbox" class="category-checkbox mr-3 cursor-pointer accent-white" style="width: 1.125rem; height: 1.125rem;" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}">
+				<input type="checkbox" class="category-checkbox mr-3" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}">
 				<span class="category-name flex-1 font-bold text-sm text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)]">${categoryName}</span>
 				<span class="category-count text-xs text-white/80 mr-2 font-semibold bg-white/10 px-2 py-0.5 rounded">${visibleCount}/${routeIds.length}</span>
 				<span class="category-toggle text-base text-white/90 transition-transform duration-300" style="transform: rotate(-90deg);">▼</span>
@@ -191,7 +191,7 @@
 				}
 				
 				lineItem.innerHTML = `
-					<input type="checkbox" class="line-checkbox mr-2 cursor-pointer accent-white" style="width: 1rem; height: 1rem;" ${line.visible ? 'checked' : ''} data-route-id="${line.routeId}">
+					<input type="checkbox" class="line-checkbox mr-2" ${line.visible ? 'checked' : ''} data-route-id="${line.routeId}">
 					${lineVisual}
 					<span class="line-name flex-1 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)]">${line.routeName}</span>
 				`;
