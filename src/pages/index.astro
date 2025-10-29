@@ -327,79 +327,80 @@ import Layout from '../layouts/Layout.astro';
 					console.log('Cette ligne existe?', linesByOriginalId[data.features[0].properties.id]);
 				}
 				
-				// Tracker les arrêts déjà ajoutés par nom et ligne pour éviter les doublons
-				const seenStops = new Map();
+				// Tracker les arrêts déjà ajoutés par nom et ligne pour regrouper les directions
+				const stopsByNameAndLine = new Map();
 				
+				// Premier passage: regrouper tous les stop_id par nom de station
 				for (const feature of data.features) {
-					// GeoJSON avec geometry.type = "Point" et geometry.coordinates = [lng, lat]
 					if (feature.geometry && feature.geometry.type === 'Point' && feature.properties) {
 						const properties = feature.properties;
 						const [lng, lat] = feature.geometry.coordinates;
 						
-						// 'id' correspond à la ligne (ex: IDFM:C01371)
-						// Essayer avec et sans le préfixe IDFM:
 						let routeId = properties.id;
 						let line = linesByOriginalId[routeId];
 						
-						// Si pas trouvé, essayer sans le préfixe IDFM:
 						if (!line && routeId && routeId.startsWith('IDFM:')) {
 							const routeIdWithoutPrefix = routeId.replace('IDFM:', '');
 							line = linesByOriginalId[routeIdWithoutPrefix];
 						}
 						
-						// Si toujours pas trouvé, essayer avec le préfixe IDFM:
 						if (!line && routeId && !routeId.startsWith('IDFM:')) {
 							line = linesByOriginalId[`IDFM:${routeId}`];
 						}
 						
 						if (!line) {
 							stopsSkipped++;
-							if (stopsSkipped < 5) {
-								console.log('Arrêt ignoré - ligne non trouvée:', routeId, properties.stop_name);
-							}
-							continue; // Ignorer les arrêts de lignes non chargées
+							continue;
 						}
 						
-						// Créer une clé unique pour cet arrêt basée sur son nom et sa ligne
 						const stopName = properties.stop_name || 'Arrêt inconnu';
 						const stopKey = `${line.routeId}|${stopName}`;
 						
-						// Vérifier si cet arrêt avec ce nom a déjà été ajouté pour cette ligne
-						if (seenStops.has(stopKey)) {
-							stopsDuplicated++;
-							continue;
-						}
-						seenStops.set(stopKey, true);
-						
-						// Créer le marker
-						const marker = createStopMarker(
-							{ lat: parseFloat(lat), lng: parseFloat(lng) },
-							properties,
-							line
-						);
-						
-						if (stopsLoaded < 5) {
-							console.log('Marker créé:', marker, 'pour arrêt:', properties.stop_name, 'ligne:', line.routeName);
+						// Regrouper tous les stop_id pour cette station
+						if (!stopsByNameAndLine.has(stopKey)) {
+							stopsByNameAndLine.set(stopKey, {
+								line,
+								stopName,
+								stopIds: [],
+								lat,
+								lng
+							});
 						}
 						
-						// Stocker le marker dans allStops par ligne
-						if (!window.filterPanelData.allStops[line.routeId]) {
-							window.filterPanelData.allStops[line.routeId] = [];
-						}
-						window.filterPanelData.allStops[line.routeId].push(marker);
-						
-						// Ajouter à la ligne
-						if (!line.stops) {
-							line.stops = [];
-						}
-						line.stops.push(marker);
-						
-						stopsLoaded++;
-						
-						if (stopsLoaded % 100 === 0) {
-							status.textContent = `Arrêts: ${stopsLoaded}...`;
-							await new Promise(resolve => setTimeout(resolve, 5));
-						}
+						stopsByNameAndLine.get(stopKey).stopIds.push(properties.stop_id);
+					}
+				}
+				
+				// Deuxième passage: créer un seul marker par station avec tous les stop_id
+				for (const [stopKey, stopData] of stopsByNameAndLine) {
+					const { line, stopName, stopIds, lat, lng } = stopData;
+					
+					// Créer le marker avec tous les stop_id
+					const marker = createStopMarker(
+						{ lat: parseFloat(lat), lng: parseFloat(lng) },
+						{ stop_name: stopName, stop_ids: stopIds },
+						line
+					);
+					
+					if (stopsLoaded < 5) {
+						console.log('Marker créé:', marker, 'pour arrêt:', stopName, 'ligne:', line.routeName, 'avec', stopIds.length, 'directions');
+					}
+					
+					if (!window.filterPanelData.allStops[line.routeId]) {
+						window.filterPanelData.allStops[line.routeId] = [];
+					}
+					window.filterPanelData.allStops[line.routeId].push(marker);
+					
+					if (!line.stops) {
+						line.stops = [];
+					}
+					line.stops.push(marker);
+					
+					stopsLoaded++;
+					
+					if (stopsLoaded % 100 === 0) {
+						status.textContent = `Arrêts: ${stopsLoaded}...`;
+						await new Promise(resolve => setTimeout(resolve, 5));
 					}
 				}
 				
@@ -476,12 +477,15 @@ import Layout from '../layouts/Layout.astro';
 
 		// Info-bulle au clic
 		marker.addListener('click', async () => {
+			const stopIds = properties.stop_ids || [properties.stop_id];
+			const hasMultipleDirections = stopIds.length > 1;
+			
 			const infoWindow = new google.maps.InfoWindow({
 				content: `
 					<div style="padding: 10px; min-width: 250px;">
 						<h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600;">${properties.stop_name || 'Arrêt'}</h4>
 						<p style="margin: 4px 0; font-size: 12px; color: #666;">Ligne: ${line.routeName}</p>
-						${properties.stop_id ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">ID: ${properties.stop_id}</p>` : ''}
+						${hasMultipleDirections ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">Toutes directions</p>` : ''}
 						<div id="schedules-content" style="margin-top: 12px;">
 							<p style="font-size: 11px; color: #999;">Chargement des horaires...</p>
 						</div>
@@ -491,12 +495,24 @@ import Layout from '../layouts/Layout.astro';
 			});
 			infoWindow.open(map);
 			
-			// Fonction pour charger les horaires
+			// Fonction pour charger les horaires de toutes les directions
 			const loadSchedules = async () => {
-				if (properties.stop_id && line.originalRouteId) {
+				if (stopIds && stopIds.length > 0 && line.originalRouteId) {
 					try {
-						const schedules = await window.fetchStopSchedules(properties.stop_id, line.originalRouteId, line.routeType);
-						const schedulesHTML = window.generateSchedulesHTML(schedules, line.routeType);
+						// Récupérer les horaires pour chaque direction
+						const allSchedulesPromises = stopIds.map(stopId => 
+							window.fetchStopSchedules(stopId, line.originalRouteId, line.routeType)
+						);
+						
+						const allSchedulesResults = await Promise.all(allSchedulesPromises);
+						
+						// Fusionner tous les horaires
+						const allSchedules = allSchedulesResults.flat();
+						
+						// Trier par ordre chronologique (plus proche en premier)
+						allSchedules.sort((a, b) => new Date(a.time) - new Date(b.time));
+						
+						const schedulesHTML = window.generateSchedulesHTML(allSchedules, line.routeType);
 						const container = document.getElementById('schedules-content');
 						if (container) {
 							container.innerHTML = schedulesHTML;
