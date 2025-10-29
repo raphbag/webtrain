@@ -196,11 +196,16 @@ function parseSchedulesData(data) {
 }
 
 /**
- * Génère le HTML pour afficher les horaires dans une info-bulle
+ * Génère un élément DOM pour afficher les horaires dans une info-bulle
  */
-export function generateSchedulesHTML(schedules, routeType) {
+export function generateSchedulesElement(schedules, routeType) {
+	// Créer le conteneur principal
+	const container = document.createElement('div');
+	container.className = 'text-[11px]';
+	
 	if (!schedules || schedules.length === 0) {
-		return '<p style="font-size: 11px; color: #999;">Aucun horaire disponible</p>';
+		container.innerHTML = '<p class="text-[11px] text-gray-400">Aucun horaire disponible</p>';
+		return container;
 	}
 	
 	// Déterminer si on affiche la colonne voie (uniquement pour RER, TER, Transilien)
@@ -209,25 +214,44 @@ export function generateSchedulesHTML(schedules, routeType) {
 	// Déterminer le nombre d'horaires à afficher selon le type de transport
 	const maxSchedules = showPlatform ? MAX_SCHEDULES_RAIL : MAX_SCHEDULES_METRO_TRAM;
 	
-	// Construire le tableau HTML avec scroll si nécessaire pour RER/TER/Transilien
-	const tableStyle = showPlatform ? 'max-height: 300px; overflow-y: auto;' : '';
+	// Titre
+	const title = document.createElement('h5');
+	title.className = 'm-0 mb-1.5 text-xs font-semibold';
+	title.textContent = 'Prochains passages';
+	container.appendChild(title);
 	
-	let html = `
-		<div style="font-size: 11px;">
-			<h5 style="margin: 0 0 6px 0; font-size: 12px; font-weight: 600;">Prochains passages</h5>
-			<div style="${tableStyle}">
-				<table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-					<thead>
-						<tr style="border-bottom: 1px solid #ddd;">
-							<th style="text-align: left; padding: 4px; font-weight: 600;">Heure</th>
-							<th style="text-align: left; padding: 4px; font-weight: 600;">Direction</th>
-							${showPlatform ? '<th style="text-align: center; padding: 4px; font-weight: 600;">Voie</th>' : ''}
-						</tr>
-					</thead>
-					<tbody>
-	`;
+	// Conteneur avec scroll si nécessaire
+	const tableWrapper = document.createElement('div');
+	if (showPlatform) {
+		tableWrapper.className = 'max-h-[300px] overflow-y-auto';
+	}
 	
-	// Limiter selon le type de transport
+	// Créer la table
+	const table = document.createElement('table');
+	table.className = 'w-full border-collapse text-[11px]';
+	
+	// En-tête
+	const thead = document.createElement('thead');
+	const headerRow = document.createElement('tr');
+	headerRow.className = 'border-b border-gray-300';
+	
+	const headers = ['Heure', 'Direction'];
+	if (showPlatform) headers.push('Voie');
+	
+	headers.forEach((text, index) => {
+		const th = document.createElement('th');
+		th.className = 'text-left p-1 font-semibold';
+		if (index === 2) th.className = 'text-center p-1 font-semibold';
+		th.textContent = text;
+		headerRow.appendChild(th);
+	});
+	
+	thead.appendChild(headerRow);
+	table.appendChild(thead);
+	
+	// Corps du tableau
+	const tbody = document.createElement('tbody');
+	
 	schedules.slice(0, maxSchedules).forEach(schedule => {
 		const now = new Date();
 		const aimedTime = schedule.aimedTime ? new Date(schedule.aimedTime) : null;
@@ -238,17 +262,12 @@ export function generateSchedulesHTML(schedules, routeType) {
 		const displayTime = expectedTime || aimedTime;
 		const diffMinutes = Math.round((displayTime - now) / 60000);
 		
-		// Style pour les trains annulés (barré en rouge)
-		const cancelledStyle = isCancelled ? 'text-decoration: line-through; color: #dc2626;' : '';
-		
 		// Pour RER, TER et Transilien : toujours afficher l'heure originale
 		// Pour Métro et Tram : afficher "X min" basé sur le temps réel (avec retard)
 		let timeStr;
 		if (routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') {
-			// Toujours afficher l'heure originale
 			timeStr = aimedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 		} else {
-			// Pour métro/tram : afficher "X min" basé sur displayTime (temps réel avec retard)
 			if (diffMinutes < 0) {
 				timeStr = displayTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 			} else if (diffMinutes < 60) {
@@ -258,34 +277,64 @@ export function generateSchedulesHTML(schedules, routeType) {
 			}
 		}
 		
-		// Calculer le retard si expectedTime existe et est différent
-		// Pour RER/TER/Transilien : afficher l'heure de retard en orange
-		// Pour Métro/Tram : ne pas afficher (déjà inclus dans "X min")
-		let delayHTML = '';
+		// Créer la ligne
+		const tr = document.createElement('tr');
+		tr.className = 'border-b border-gray-100';
+		if (isCancelled) {
+			tr.className += ' line-through text-red-600';
+		}
+		
+		// Colonne heure
+		const tdTime = document.createElement('td');
+		tdTime.className = 'p-1 whitespace-nowrap';
+		if (isCancelled) tdTime.className += ' line-through text-red-600';
+		tdTime.textContent = timeStr;
+		
+		// Ajouter le retard en orange si applicable
 		if ((routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') && 
 		    expectedTime && aimedTime && expectedTime > aimedTime) {
 			const delayMinutes = Math.round((expectedTime - aimedTime) / 60000);
 			if (delayMinutes > 0) {
 				const expectedTimeStr = expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-				delayHTML = ` <span style="color: #ff8800; font-weight: 600;">${expectedTimeStr}</span>`;
+				const delaySpan = document.createElement('span');
+				delaySpan.className = 'text-orange-500 font-semibold ml-1';
+				delaySpan.textContent = expectedTimeStr;
+				tdTime.appendChild(delaySpan);
 			}
 		}
 		
-		html += `
-			<tr style="border-bottom: 1px solid #eee; ${cancelledStyle}">
-				<td style="padding: 4px; white-space: nowrap; ${cancelledStyle}">${timeStr}${delayHTML}</td>
-				<td style="padding: 4px; ${cancelledStyle}">${schedule.destination}</td>
-				${showPlatform ? `<td style="padding: 4px; text-align: center; ${cancelledStyle}">${schedule.platform}</td>` : ''}
-			</tr>
-		`;
+		tr.appendChild(tdTime);
+		
+		// Colonne destination
+		const tdDest = document.createElement('td');
+		tdDest.className = 'p-1';
+		if (isCancelled) tdDest.className += ' line-through text-red-600';
+		tdDest.textContent = schedule.destination;
+		tr.appendChild(tdDest);
+		
+		// Colonne voie (si applicable)
+		if (showPlatform) {
+			const tdPlatform = document.createElement('td');
+			tdPlatform.className = 'p-1 text-center';
+			if (isCancelled) tdPlatform.className += ' line-through text-red-600';
+			tdPlatform.textContent = schedule.platform;
+			tr.appendChild(tdPlatform);
+		}
+		
+		tbody.appendChild(tr);
 	});
 	
-	html += `
-					</tbody>
-				</table>
-			</div>
-		</div>
-	`;
+	table.appendChild(tbody);
+	tableWrapper.appendChild(table);
+	container.appendChild(tableWrapper);
 	
-	return html;
+	return container;
+}
+
+/**
+ * Version legacy qui retourne du HTML en string (pour compatibilité)
+ */
+export function generateSchedulesHTML(schedules, routeType) {
+	const element = generateSchedulesElement(schedules, routeType);
+	return element.outerHTML;
 }

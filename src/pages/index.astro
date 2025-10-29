@@ -5,13 +5,13 @@ import Layout from '../layouts/Layout.astro';
 
 <script>
 	import '../scripts/markerClusterer.js';
-	import { fetchStopSchedules, generateSchedulesHTML } from '../scripts/stopMonitoring.js';
+	import { fetchStopSchedules, generateSchedulesElement } from '../scripts/stopMonitoring.js';
 	
 	// Exposer globalement pour utilisation dans le code inline
 	// @ts-ignore: extending window with runtime-only properties
 	window.fetchStopSchedules = fetchStopSchedules;
 	// @ts-ignore: extending window with runtime-only properties
-	window.generateSchedulesHTML = generateSchedulesHTML;
+	window.generateSchedulesElement = generateSchedulesElement;
 </script>
 
 <Layout title="Webtrain - Visualisation des lignes de transport">
@@ -60,6 +60,7 @@ import Layout from '../layouts/Layout.astro';
 		// Charger les bibliothèques Maps et Marker
 		const { Map } = await google.maps.importLibrary("maps");
 		const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
+		
 
 		// Créer la carte
 		map = new Map(document.getElementById("map"), {
@@ -496,17 +497,40 @@ import Layout from '../layouts/Layout.astro';
 			const stopIds = properties.stop_ids || [properties.stop_id];
 			const hasMultipleDirections = stopIds.length > 1;
 			
+			// Créer le conteneur avec Tailwind CSS
+			const contentDiv = document.createElement('div');
+			contentDiv.className = 'p-2.5 min-w-[250px]';
+			
+			const title = document.createElement('h4');
+			title.className = 'm-0 mb-2 text-sm font-semibold';
+			title.textContent = properties.stop_name || 'Arrêt';
+			contentDiv.appendChild(title);
+			
+			const lineInfo = document.createElement('p');
+			lineInfo.className = 'my-1 text-xs text-gray-600';
+			lineInfo.textContent = `Ligne: ${line.routeName}`;
+			contentDiv.appendChild(lineInfo);
+			
+			if (hasMultipleDirections) {
+				const directionInfo = document.createElement('p');
+				directionInfo.className = 'my-1 text-[11px] text-gray-400';
+				directionInfo.textContent = 'Toutes directions';
+				contentDiv.appendChild(directionInfo);
+			}
+			
+			const schedulesContainer = document.createElement('div');
+			schedulesContainer.id = 'schedules-content';
+			schedulesContainer.className = 'mt-3';
+			
+			const loadingText = document.createElement('p');
+			loadingText.className = 'text-[11px] text-gray-400';
+			loadingText.textContent = 'Chargement des horaires...';
+			schedulesContainer.appendChild(loadingText);
+			
+			contentDiv.appendChild(schedulesContainer);
+			
 			const infoWindow = new google.maps.InfoWindow({
-				content: `
-					<div style="padding: 10px; min-width: 250px;">
-						<h4 style="margin: 0 0 8px 0; font-size: 14px; font-weight: 600;">${properties.stop_name || 'Arrêt'}</h4>
-						<p style="margin: 4px 0; font-size: 12px; color: #666;">Ligne: ${line.routeName}</p>
-						${hasMultipleDirections ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">Toutes directions</p>` : ''}
-						<div id="schedules-content" style="margin-top: 12px;">
-							<p style="font-size: 11px; color: #999;">Chargement des horaires...</p>
-						</div>
-					</div>
-				`,
+				content: contentDiv,
 				position
 			});
 			
@@ -535,16 +559,21 @@ import Layout from '../layouts/Layout.astro';
 							return timeA - timeB;
 						});
 						
-						const schedulesHTML = window.generateSchedulesHTML(allSchedules, line.routeType);
+						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType);
 						const container = document.getElementById('schedules-content');
 						if (container) {
-							container.innerHTML = schedulesHTML;
+							container.innerHTML = '';
+							container.appendChild(schedulesElement);
 						}
 					} catch (error) {
 						console.error('Erreur chargement horaires:', error);
 						const container = document.getElementById('schedules-content');
 						if (container) {
-							container.innerHTML = '<p style="font-size: 11px; color: #999;">Erreur de chargement</p>';
+							container.innerHTML = '';
+							const errorText = document.createElement('p');
+							errorText.className = 'text-[11px] text-gray-400';
+							errorText.textContent = 'Erreur de chargement';
+							container.appendChild(errorText);
 						}
 					}
 				}
@@ -622,15 +651,39 @@ import Layout from '../layouts/Layout.astro';
 			}
 			
 			const routeType = getRouteTypeName(properties.route_type);
+			
+			// Créer le conteneur avec Tailwind CSS
+			const contentDiv = document.createElement('div');
+			contentDiv.className = 'p-2.5 min-w-[200px]';
+			
+			const title = document.createElement('h3');
+			title.className = 'm-0 mb-2 text-base font-semibold';
+			title.textContent = name;
+			contentDiv.appendChild(title);
+			
+			if (routeType) {
+				const typeP = document.createElement('p');
+				typeP.className = 'my-1 text-[13px] text-gray-600';
+				typeP.textContent = `Type: ${routeType}`;
+				contentDiv.appendChild(typeP);
+			}
+			
+			if (properties.route_id) {
+				const idP = document.createElement('p');
+				idP.className = 'my-1 text-xs text-gray-400';
+				idP.textContent = `ID: ${properties.route_id}`;
+				contentDiv.appendChild(idP);
+			}
+			
+			if (properties.operatorname) {
+				const operatorP = document.createElement('p');
+				operatorP.className = 'my-1 text-xs text-gray-400';
+				operatorP.textContent = `Opérateur: ${properties.operatorname}`;
+				contentDiv.appendChild(operatorP);
+			}
+			
 			const infoWindow = new google.maps.InfoWindow({
-				content: `
-					<div style="padding: 10px; min-width: 200px;">
-						<h3 style="margin: 0 0 8px 0; font-size: 16px; font-weight: 600;">${name}</h3>
-						${routeType ? `<p style="margin: 4px 0; font-size: 13px; color: #666;">Type: ${routeType}</p>` : ''}
-						${properties.route_id ? `<p style="margin: 4px 0; font-size: 12px; color: #999;">ID: ${properties.route_id}</p>` : ''}
-						${properties.operatorname ? `<p style="margin: 4px 0; font-size: 12px; color: #999;">Opérateur: ${properties.operatorname}</p>` : ''}
-					</div>
-				`,
+				content: contentDiv,
 				position: event.latLng
 			});
 			
