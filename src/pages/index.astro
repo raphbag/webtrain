@@ -41,12 +41,17 @@ import Layout from '../layouts/Layout.astro';
 	// Arrêts des lignes - format GeoJSON
 	const ARRETS_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/arrets-lignes/exports/geojson?where=mode != \'Bus\'';
 	
+	// Configuration
+	const REFRESH_INTERVAL_MS = 10000; // Intervalle d'actualisation en millisecondes (10 secondes)
+	const MIN_ZOOM_FOR_STOPS = 15; // Zoom minimum pour afficher les arrêts (15 = très zoomé)
+	
 	let map;
 	let allLines = {}; // Stocker toutes les lignes par route_id
 	let categories = {}; // Catégories de transport
 	let lineImages = {}; // Cache des images de lignes
 	let allStops = {}; // Stocker tous les arrêts par ligne
-	const MIN_ZOOM_FOR_STOPS = 15; // Zoom minimum pour afficher les arrêts (très zoomé)
+	let currentInfoWindow = null; // InfoWindow actuellement ouverte
+	let currentRefreshInterval = null; // Intervalle d'actualisation actuel
 
 	async function initMap() {
 		// Coordonnées de Paris
@@ -477,6 +482,17 @@ import Layout from '../layouts/Layout.astro';
 
 		// Info-bulle au clic
 		marker.addListener('click', async () => {
+			// Fermer l'infoWindow précédente si elle existe
+			if (currentInfoWindow) {
+				currentInfoWindow.close();
+			}
+			
+			// Arrêter l'actualisation précédente si elle existe
+			if (currentRefreshInterval) {
+				clearInterval(currentRefreshInterval);
+				currentRefreshInterval = null;
+			}
+			
 			const stopIds = properties.stop_ids || [properties.stop_id];
 			const hasMultipleDirections = stopIds.length > 1;
 			
@@ -493,6 +509,9 @@ import Layout from '../layouts/Layout.astro';
 				`,
 				position
 			});
+			
+			// Stocker l'infoWindow actuelle
+			currentInfoWindow = infoWindow;
 			infoWindow.open(map);
 			
 			// Fonction pour charger les horaires de toutes les directions
@@ -509,8 +528,12 @@ import Layout from '../layouts/Layout.astro';
 						// Fusionner tous les horaires
 						const allSchedules = allSchedulesResults.flat();
 						
-						// Trier par ordre chronologique (plus proche en premier)
-						allSchedules.sort((a, b) => new Date(a.time) - new Date(b.time));
+						// Trier par ordre chronologique (utiliser expectedTime si disponible, sinon aimedTime)
+						allSchedules.sort((a, b) => {
+							const timeA = new Date(a.expectedTime || a.aimedTime);
+							const timeB = new Date(b.expectedTime || b.aimedTime);
+							return timeA - timeB;
+						});
 						
 						const schedulesHTML = window.generateSchedulesHTML(allSchedules, line.routeType);
 						const container = document.getElementById('schedules-content');
@@ -530,12 +553,16 @@ import Layout from '../layouts/Layout.astro';
 			// Charger les horaires immédiatement
 			loadSchedules();
 			
-			// Actualiser toutes les 10 secondes
-			const refreshInterval = setInterval(loadSchedules, 10000);
+			// Actualiser selon l'intervalle configuré
+			currentRefreshInterval = setInterval(loadSchedules, REFRESH_INTERVAL_MS);
 			
 			// Arrêter l'actualisation quand l'info-bulle est fermée
 			google.maps.event.addListener(infoWindow, 'closeclick', () => {
-				clearInterval(refreshInterval);
+				if (currentRefreshInterval) {
+					clearInterval(currentRefreshInterval);
+					currentRefreshInterval = null;
+				}
+				currentInfoWindow = null;
 			});
 		});
 
@@ -583,6 +610,17 @@ import Layout from '../layouts/Layout.astro';
 
 		// Ajouter info-bulle au clic
 		polyline.addListener('click', (event) => {
+			// Fermer l'infoWindow précédente si elle existe
+			if (currentInfoWindow) {
+				currentInfoWindow.close();
+			}
+			
+			// Arrêter l'actualisation précédente si elle existe
+			if (currentRefreshInterval) {
+				clearInterval(currentRefreshInterval);
+				currentRefreshInterval = null;
+			}
+			
 			const routeType = getRouteTypeName(properties.route_type);
 			const infoWindow = new google.maps.InfoWindow({
 				content: `
@@ -595,7 +633,15 @@ import Layout from '../layouts/Layout.astro';
 				`,
 				position: event.latLng
 			});
+			
+			// Stocker l'infoWindow actuelle
+			currentInfoWindow = infoWindow;
 			infoWindow.open(map);
+			
+			// Nettoyer la référence quand fermée manuellement
+			google.maps.event.addListener(infoWindow, 'closeclick', () => {
+				currentInfoWindow = null;
+			});
 		});
 
 		return polyline;

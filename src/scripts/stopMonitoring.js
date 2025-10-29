@@ -5,6 +5,10 @@
 const API_KEY = 'SvPHVJ5fPXkfJPKsu6958pwLCh5Oidhq';
 const API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring';
 
+// Configuration de l'affichage des horaires
+const MAX_SCHEDULES_METRO_TRAM = 5; // Nombre d'horaires affichés pour Métro/Tram
+const MAX_SCHEDULES_RAIL = 10; // Nombre d'horaires affichés pour RER/TER/Transilien
+
 /**
  * Extrait l'ID numérique d'un stop_id complexe
  * Exemples:
@@ -153,23 +157,34 @@ function parseSchedulesData(data) {
 			const destinationName = journey.DestinationName?.[0]?.value || 
 			                       journey.DestinationName?.value || 
 			                       'Destination inconnue';
-			const departureTime = journey.MonitoredCall?.ExpectedDepartureTime || 
-			                     journey.MonitoredCall?.AimedDepartureTime;
+			const aimedTime = journey.MonitoredCall?.AimedDepartureTime;
+			const expectedTime = journey.MonitoredCall?.ExpectedDepartureTime;
 			const platform = journey.MonitoredCall?.DeparturePlatformName?.value || 
 			                journey.MonitoredCall?.ArrivalPlatformName?.value || 
 			                '-';
 			
-			if (departureTime) {
+			// Vérifier si le train est annulé
+			const isCancelled = journey.MonitoredCall?.DepartureStatus === 'cancelled' ||
+			                   journey.MonitoredCall?.VehicleAtStop === false && 
+			                   journey.MonitoredCall?.ExpectedDepartureTime === undefined;
+			
+			if (aimedTime || expectedTime) {
 				schedules.push({
 					destination: destinationName,
-					time: departureTime,
-					platform: platform
+					aimedTime: aimedTime,
+					expectedTime: expectedTime,
+					platform: platform,
+					isCancelled: isCancelled
 				});
 			}
 		});
 		
-		// Trier par heure
-		schedules.sort((a, b) => new Date(a.time) - new Date(b.time));
+		// Trier par heure (utiliser expectedTime si disponible, sinon aimedTime)
+		schedules.sort((a, b) => {
+			const timeA = new Date(a.expectedTime || a.aimedTime);
+			const timeB = new Date(b.expectedTime || b.aimedTime);
+			return timeA - timeB;
+		});
 		
 		console.log(`Parsed ${schedules.length} schedules`);
 		
@@ -191,49 +206,84 @@ export function generateSchedulesHTML(schedules, routeType) {
 	// Déterminer si on affiche la colonne voie (uniquement pour RER, TER, Transilien)
 	const showPlatform = routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien';
 	
-	// Construire le tableau HTML
+	// Déterminer le nombre d'horaires à afficher selon le type de transport
+	const maxSchedules = showPlatform ? MAX_SCHEDULES_RAIL : MAX_SCHEDULES_METRO_TRAM;
+	
+	// Construire le tableau HTML avec scroll si nécessaire pour RER/TER/Transilien
+	const tableStyle = showPlatform ? 'max-height: 300px; overflow-y: auto;' : '';
+	
 	let html = `
 		<div style="font-size: 11px;">
 			<h5 style="margin: 0 0 6px 0; font-size: 12px; font-weight: 600;">Prochains passages</h5>
-			<table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-				<thead>
-					<tr style="border-bottom: 1px solid #ddd;">
-						<th style="text-align: left; padding: 4px; font-weight: 600;">Heure</th>
-						<th style="text-align: left; padding: 4px; font-weight: 600;">Direction</th>
-						${showPlatform ? '<th style="text-align: center; padding: 4px; font-weight: 600;">Voie</th>' : ''}
-					</tr>
-				</thead>
-				<tbody>
+			<div style="${tableStyle}">
+				<table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+					<thead>
+						<tr style="border-bottom: 1px solid #ddd;">
+							<th style="text-align: left; padding: 4px; font-weight: 600;">Heure</th>
+							<th style="text-align: left; padding: 4px; font-weight: 600;">Direction</th>
+							${showPlatform ? '<th style="text-align: center; padding: 4px; font-weight: 600;">Voie</th>' : ''}
+						</tr>
+					</thead>
+					<tbody>
 	`;
 	
-	// Limiter à 5 horaires maximum
-	schedules.slice(0, 5).forEach(schedule => {
-		const time = new Date(schedule.time);
+	// Limiter selon le type de transport
+	schedules.slice(0, maxSchedules).forEach(schedule => {
 		const now = new Date();
-		const diffMinutes = Math.round((time - now) / 60000);
+		const aimedTime = schedule.aimedTime ? new Date(schedule.aimedTime) : null;
+		const expectedTime = schedule.expectedTime ? new Date(schedule.expectedTime) : null;
+		const isCancelled = schedule.isCancelled || false;
 		
-		// Afficher "X min" si moins de 60 minutes, sinon l'heure
+		// Utiliser expectedTime si disponible, sinon aimedTime
+		const displayTime = expectedTime || aimedTime;
+		const diffMinutes = Math.round((displayTime - now) / 60000);
+		
+		// Style pour les trains annulés (barré en rouge)
+		const cancelledStyle = isCancelled ? 'text-decoration: line-through; color: #dc2626;' : '';
+		
+		// Pour RER, TER et Transilien : toujours afficher l'heure originale
+		// Pour Métro et Tram : afficher "X min" basé sur le temps réel (avec retard)
 		let timeStr;
-		if (diffMinutes < 0) {
-			timeStr = time.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-		} else if (diffMinutes < 60) {
-			timeStr = `${diffMinutes} min`;
+		if (routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') {
+			// Toujours afficher l'heure originale
+			timeStr = aimedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 		} else {
-			timeStr = time.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+			// Pour métro/tram : afficher "X min" basé sur displayTime (temps réel avec retard)
+			if (diffMinutes < 0) {
+				timeStr = displayTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+			} else if (diffMinutes < 60) {
+				timeStr = `${diffMinutes} min`;
+			} else {
+				timeStr = displayTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+			}
+		}
+		
+		// Calculer le retard si expectedTime existe et est différent
+		// Pour RER/TER/Transilien : afficher l'heure de retard en orange
+		// Pour Métro/Tram : ne pas afficher (déjà inclus dans "X min")
+		let delayHTML = '';
+		if ((routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') && 
+		    expectedTime && aimedTime && expectedTime > aimedTime) {
+			const delayMinutes = Math.round((expectedTime - aimedTime) / 60000);
+			if (delayMinutes > 0) {
+				const expectedTimeStr = expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+				delayHTML = ` <span style="color: #ff8800; font-weight: 600;">${expectedTimeStr}</span>`;
+			}
 		}
 		
 		html += `
-			<tr style="border-bottom: 1px solid #eee;">
-				<td style="padding: 4px; white-space: nowrap;">${timeStr}</td>
-				<td style="padding: 4px;">${schedule.destination}</td>
-				${showPlatform ? `<td style="padding: 4px; text-align: center;">${schedule.platform}</td>` : ''}
+			<tr style="border-bottom: 1px solid #eee; ${cancelledStyle}">
+				<td style="padding: 4px; white-space: nowrap; ${cancelledStyle}">${timeStr}${delayHTML}</td>
+				<td style="padding: 4px; ${cancelledStyle}">${schedule.destination}</td>
+				${showPlatform ? `<td style="padding: 4px; text-align: center; ${cancelledStyle}">${schedule.platform}</td>` : ''}
 			</tr>
 		`;
 	});
 	
 	html += `
-				</tbody>
-			</table>
+					</tbody>
+				</table>
+			</div>
 		</div>
 	`;
 	
