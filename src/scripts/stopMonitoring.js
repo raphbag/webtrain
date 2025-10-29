@@ -163,6 +163,11 @@ function parseSchedulesData(data) {
 			                journey.MonitoredCall?.ArrivalPlatformName?.value || 
 			                '-';
 			
+			// Récupérer le JourneyNote
+			const journeyNote = journey.JourneyNote?.[0]?.value || 
+			                   journey.JourneyNote?.value || 
+			                   null;
+			
 			// Vérifier si le train est annulé
 			const isCancelled = journey.MonitoredCall?.DepartureStatus === 'cancelled' ||
 			                   journey.MonitoredCall?.VehicleAtStop === false && 
@@ -174,7 +179,8 @@ function parseSchedulesData(data) {
 					aimedTime: aimedTime,
 					expectedTime: expectedTime,
 					platform: platform,
-					isCancelled: isCancelled
+					isCancelled: isCancelled,
+					journeyNote: journeyNote
 				});
 			}
 		});
@@ -257,6 +263,7 @@ export function generateSchedulesElement(schedules, routeType) {
 		const aimedTime = schedule.aimedTime ? new Date(schedule.aimedTime) : null;
 		const expectedTime = schedule.expectedTime ? new Date(schedule.expectedTime) : null;
 		const isCancelled = schedule.isCancelled || false;
+		const journeyNote = schedule.journeyNote || null;
 		
 		// Utiliser expectedTime si disponible, sinon aimedTime
 		const displayTime = expectedTime || aimedTime;
@@ -309,7 +316,25 @@ export function generateSchedulesElement(schedules, routeType) {
 		const tdDest = document.createElement('td');
 		tdDest.className = 'p-1';
 		if (isCancelled) tdDest.className += ' line-through text-red-600';
-		tdDest.textContent = schedule.destination;
+		
+		// Créer un conteneur flex pour destination + note
+		const destContainer = document.createElement('div');
+		destContainer.className = 'flex items-center gap-2';
+		
+		// Destination
+		const destSpan = document.createElement('span');
+		destSpan.textContent = schedule.destination;
+		destContainer.appendChild(destSpan);
+		
+		// Ajouter le JourneyNote si présent
+		if (journeyNote) {
+			const noteSpan = document.createElement('span');
+			noteSpan.className = 'text-[10px] text-blue-600 italic';
+			noteSpan.textContent = `${journeyNote}`;
+			destContainer.appendChild(noteSpan);
+		}
+		
+		tdDest.appendChild(destContainer);
 		tr.appendChild(tdDest);
 		
 		// Colonne voie (si applicable)
