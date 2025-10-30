@@ -173,6 +173,9 @@ function parseSchedulesData(data) {
 			                   journey.MonitoredCall?.VehicleAtStop === false && 
 			                   journey.MonitoredCall?.ExpectedDepartureTime === undefined;
 			
+			// Récupérer VehicleAtStop
+			const vehicleAtStop = journey.MonitoredCall?.VehicleAtStop === true;
+			
 			if (aimedTime || expectedTime) {
 				schedules.push({
 					destination: destinationName,
@@ -180,7 +183,8 @@ function parseSchedulesData(data) {
 					expectedTime: expectedTime,
 					platform: platform,
 					isCancelled: isCancelled,
-					journeyNote: journeyNote
+					journeyNote: journeyNote,
+					vehicleAtStop: vehicleAtStop
 				});
 			}
 		});
@@ -264,6 +268,7 @@ export function generateSchedulesElement(schedules, routeType) {
 		const expectedTime = schedule.expectedTime ? new Date(schedule.expectedTime) : null;
 		const isCancelled = schedule.isCancelled || false;
 		const journeyNote = schedule.journeyNote || null;
+		const vehicleAtStop = schedule.vehicleAtStop || false;
 		
 		// Utiliser expectedTime si disponible, sinon aimedTime
 		const displayTime = expectedTime || aimedTime;
@@ -295,7 +300,15 @@ export function generateSchedulesElement(schedules, routeType) {
 		const tdTime = document.createElement('td');
 		tdTime.className = 'p-1 whitespace-nowrap';
 		if (isCancelled) tdTime.className += ' line-through text-red-600';
-		tdTime.textContent = timeStr;
+		
+		// Créer un conteneur flex pour tout mettre sur une ligne
+		const timeContainer = document.createElement('div');
+		timeContainer.className = 'flex items-center gap-1';
+		
+		// Ajouter l'heure
+		const timeSpan = document.createElement('span');
+		timeSpan.textContent = timeStr;
+		timeContainer.appendChild(timeSpan);
 		
 		// Ajouter le retard en orange si applicable
 		if ((routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') && 
@@ -304,11 +317,23 @@ export function generateSchedulesElement(schedules, routeType) {
 			if (delayMinutes > 0) {
 				const expectedTimeStr = expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 				const delaySpan = document.createElement('span');
-				delaySpan.className = 'text-orange-500 font-semibold ml-1';
+				delaySpan.className = 'text-orange-500 font-semibold';
 				delaySpan.textContent = expectedTimeStr;
-				tdTime.appendChild(delaySpan);
+				timeContainer.appendChild(delaySpan);
 			}
 		}
+		
+		// Ajouter l'icône train si vehicleAtStop est true
+		if (vehicleAtStop) {
+			const trainIcon = document.createElement('img');
+			trainIcon.src = '/webtrain/train_at_station.svg';
+			trainIcon.alt = 'Train à quai';
+			trainIcon.className = 'w-3 h-3';
+			trainIcon.title = 'Train à quai';
+			timeContainer.appendChild(trainIcon);
+		}
+		
+		tdTime.appendChild(timeContainer);
 		
 		tr.appendChild(tdTime);
 		
