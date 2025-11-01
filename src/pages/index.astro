@@ -52,6 +52,7 @@ import Layout from '../layouts/Layout.astro';
 	let allStops = {}; // Stocker tous les arrêts par ligne
 	let currentInfoWindow = null; // InfoWindow actuellement ouverte
 	let currentRefreshInterval = null; // Intervalle d'actualisation actuel
+	let markerPositionMap = new Map(); // Map pour suivre les positions et décaler les markers superposés
 
 	async function initMap() {
 		// Coordonnées de Paris
@@ -381,10 +382,17 @@ import Layout from '../layouts/Layout.astro';
 				for (const [stopKey, stopData] of stopsByNameAndLine) {
 					const { line, stopName, stopIds, lat, lng } = stopData;
 					
+					// Calculer la position ajustée pour éviter les superpositions
+					const adjustedPosition = getAdjustedMarkerPosition(
+						parseFloat(lat), 
+						parseFloat(lng), 
+						line.routeId
+					);
+					
 					// Créer le marker avec tous les stop_id
 					const marker = createStopMarker(
-						{ lat: parseFloat(lat), lng: parseFloat(lng) },
-						{ stop_name: stopName, stop_ids: stopIds },
+						adjustedPosition,
+						{ stop_name: stopName, stop_ids: stopIds, original_lat: lat, original_lng: lng },
 						line
 					);
 					
@@ -454,6 +462,36 @@ import Layout from '../layouts/Layout.astro';
 				}
 			});
 		});
+	}
+
+	// Fonction pour calculer une position ajustée afin d'éviter les superpositions
+	function getAdjustedMarkerPosition(lat, lng, routeId) {
+		const posKey = `${lat.toFixed(6)},${lng.toFixed(6)}`;
+		
+		if (!markerPositionMap.has(posKey)) {
+			markerPositionMap.set(posKey, []);
+		}
+		
+		const markersAtPosition = markerPositionMap.get(posKey);
+		const offsetIndex = markersAtPosition.length;
+		
+		// Stocker l'info pour ce marker
+		markersAtPosition.push(routeId);
+		
+		// Si c'est le premier marker à cette position, pas de décalage
+		if (offsetIndex === 0) {
+			return { lat, lng };
+		}
+		
+		// Calculer un décalage en cercle autour de la position originale
+		// Distance en degrés (très petite pour rester proche)
+		const offsetDistance = 0.0001; // ~11 mètres
+		const angle = (offsetIndex * (2 * Math.PI / 8)); // Répartir en cercle (8 positions max)
+		
+		const adjustedLat = lat + (offsetDistance * Math.cos(angle));
+		const adjustedLng = lng + (offsetDistance * Math.sin(angle));
+		
+		return { lat: adjustedLat, lng: adjustedLng };
 	}
 
 	function createStopMarker(position, properties, line) {
