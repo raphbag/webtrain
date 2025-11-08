@@ -15,12 +15,12 @@ import Layout from '../layouts/Layout.astro';
 </script>
 
 <Layout title="Webtrain - Visualisation des lignes de transport">
-	<div id="map" class="h-screen w-full"></div>
+	<div id="map" class="h-screen w-full z-0"></div>
 	
 	<!-- Contrôles principaux -->
 	<div id="controls" class="absolute top-5 left-1/2 -translate-x-1/2 z-20 bg-white px-4 py-3 rounded-lg shadow-md text-center">
-		<button id="loadLinesBtn" class="bg-blue-600 text-white border-0 px-5 py-2.5 rounded cursor-pointer text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">Charger les lignes de transport</button>
-		<div id="status" class="mt-2.5 text-xs text-gray-600 font-medium"></div>
+		<button id="loadLinesBtn" class="bg-blue-600 text-white border-0 px-5 py-2.5 my-2 rounded cursor-pointer text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">Charger les lignes de transport</button>
+		<div id="status" class="text-xs text-gray-600 font-medium"></div>
 	</div>
 
 	<FilterPanel />
@@ -36,10 +36,8 @@ import Layout from '../layouts/Layout.astro';
 	// URLs des datasets IDFM
 	// Réseau ferré (métro, RER, tramway, train) - tracés précis
 	const FERRE_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/traces-du-reseau-ferre-idf/exports/geojson?limit=-1';
-	// Référentiel des lignes (pour les images)
-	const REFERENTIEL_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/referentiel-des-lignes/records?limit=-1';
-	// Arrêts des lignes - format GeoJSON
-	const ARRETS_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/arrets-lignes/exports/geojson?where=mode != \'Bus\'';
+	// Emplacement des gares IDF (pour les arrêts, images et exploitants)
+	const GARES_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/emplacement-des-gares-idf/exports/geojson?limit=-1';
 	
 	// Configuration
 	const REFRESH_INTERVAL_MS = 10000; // Intervalle d'actualisation en millisecondes (10 secondes)
@@ -104,36 +102,9 @@ import Layout from '../layouts/Layout.astro';
 		const status = document.getElementById('status');
 		
 		btn.disabled = true;
-		status.textContent = 'Chargement des référentiels...';
-
+		status.textContent = 'Chargement des gares...';
+		
 		try {
-			// Récupérer d'abord le référentiel des lignes pour les images
-			status.textContent = 'Chargement du référentiel des lignes...';
-			const referentielResponse = await fetch(REFERENTIEL_URL);
-			if (referentielResponse.ok) {
-				const referentielData = await referentielResponse.json();
-				if (referentielData.results) {
-					referentielData.results.forEach(line => {
-						if (line.picto && line.picto.url) {
-							const lineId = line.id_line;
-							lineImages[lineId] = line.picto.url;
-							lineImages[`IDFM:${lineId}`] = line.picto.url;
-						}
-						// Essayer aussi picto_final s'il existe
-						if (line.picto_final) {
-							const lineId = line.id_line;
-							// Si c'est un chemin relatif, construire l'URL complète
-							const imageUrl = line.picto_final.startsWith('http') 
-								? line.picto_final 
-								: `https://data.iledefrance-mobilites.fr${line.picto_final}`;
-							lineImages[lineId] = imageUrl;
-							lineImages[`IDFM:${lineId}`] = imageUrl;
-						}
-					});
-					console.log('Images des lignes chargées:', Object.keys(lineImages).length);
-				}
-			}
-			
 			// Réinitialiser les données
 			allLines = {};
 			categories = {};
@@ -149,9 +120,9 @@ import Layout from '../layouts/Layout.astro';
 			}
 			
 			const ferreData = await ferreResponse.json();
-			console.log('Données réseau ferré reçues:', ferreData);
 			
 			if (ferreData.features && ferreData.features.length > 0) {
+				console.log(`📍 ${ferreData.features.length} segments de lignes ferrées à traiter`);
 				status.textContent = `${ferreData.features.length} lignes ferrées trouvées. Tracé en cours...`;
 				
 				for (const feature of ferreData.features) {
@@ -260,12 +231,11 @@ import Layout from '../layouts/Layout.astro';
 				}
 				
 				status.textContent = `✓ ${drawn} lignes ferrées affichées !`;
-				console.log(`Réseau ferré chargé: ${drawn} lignes`);
-				console.log('Catégories:', Object.keys(window.filterPanelData.categories));
+				console.log(`✅ ${drawn} lignes ferrées chargées:`, Object.keys(window.filterPanelData.categories).map(cat => `${cat} (${window.filterPanelData.categories[cat].length})`).join(', '));
 				
-				// Charger les arrêts
-				status.textContent = 'Chargement des arrêts...';
-				await loadStops(bounds);
+				// Charger les gares
+				status.textContent = 'Chargement des gares...';
+				await loadStops(bounds, status);
 				
 				// Ajuster la vue pour afficher toutes les lignes
 				map.fitBounds(bounds);
@@ -298,22 +268,19 @@ import Layout from '../layouts/Layout.astro';
 		}
 	}
 
-	async function loadStops(bounds) {
+	async function loadStops(bounds, status) {
 		try {
-			const response = await fetch(ARRETS_URL);
+			const response = await fetch(GARES_URL);
 			if (!response.ok) {
-				throw new Error(`Erreur HTTP arrêts: ${response.status}`);
+				throw new Error(`Erreur HTTP gares: ${response.status}`);
 			}
 			
 			const data = await response.json();
-			console.log('Données arrêts GeoJSON reçues:', data);
 			
 			if (data.features && data.features.length > 0) {
-				console.log('Nombre d\'arrêts:', data.features.length);
+				console.log(`🚉 ${data.features.length} gares à traiter`);
 				let stopsLoaded = 0;
 				let stopsSkipped = 0;
-				let stopsDuplicated = 0;
-				const status = document.getElementById('status');
 				
 				// Créer un mapping des lignes par leur ID original
 				const linesByOriginalId = {};
@@ -332,34 +299,32 @@ import Layout from '../layouts/Layout.astro';
 					}
 				});
 				
-				console.log('Lignes disponibles:', Object.keys(linesByOriginalId).length);
-				console.log('IDs de lignes:', Object.keys(linesByOriginalId).slice(0, 10));
+				console.log(`🔗 ${Object.keys(window.filterPanelData.allLines).length} lignes disponibles pour matching (idrefligc des tracés ↔ idrefligc des gares)`);
 				
-				// Examiner la structure du premier arrêt
-				if (data.features.length > 0) {
-					console.log('Structure du premier arrêt:', data.features[0]);
-					console.log('ID de la ligne:', data.features[0].properties.id);
-					console.log('Cette ligne existe?', linesByOriginalId[data.features[0].properties.id]);
-				}
-				
-				// Tracker les arrêts déjà ajoutés par nom et ligne pour regrouper les directions
+				// Tracker les gares déjà ajoutées par nom et ligne
 				const stopsByNameAndLine = new Map();
 				
-				// Premier passage: regrouper tous les stop_id par nom de station
+				// Parcourir toutes les gares
 				for (const feature of data.features) {
 					if (feature.geometry && feature.geometry.type === 'Point' && feature.properties) {
 						const properties = feature.properties;
 						const [lng, lat] = feature.geometry.coordinates;
 						
-						let routeId = properties.id;
+						// Récupérer idrefligc comme LineRef
+						const routeId = properties.idrefligc;
+						if (!routeId) {
+							stopsSkipped++;
+							continue;
+						}
+						
 						let line = linesByOriginalId[routeId];
 						
-						if (!line && routeId && routeId.startsWith('IDFM:')) {
+						if (!line && routeId.startsWith('IDFM:')) {
 							const routeIdWithoutPrefix = routeId.replace('IDFM:', '');
 							line = linesByOriginalId[routeIdWithoutPrefix];
 						}
 						
-						if (!line && routeId && !routeId.startsWith('IDFM:')) {
+						if (!line && !routeId.startsWith('IDFM:')) {
 							line = linesByOriginalId[`IDFM:${routeId}`];
 						}
 						
@@ -368,27 +333,40 @@ import Layout from '../layouts/Layout.astro';
 							continue;
 						}
 						
-						const stopName = properties.stop_name || 'Arrêt inconnu';
+						// Stocker l'image de ligne si disponible
+						if (properties.picto && properties.picto.url && !line.imageUrl) {
+							line.imageUrl = properties.picto.url;
+							lineImages[routeId] = properties.picto.url;
+						}
+						
+						const stopName = properties.nom_gares || properties.nom_iv || 'Gare inconnue';
 						const stopKey = `${line.routeId}|${stopName}`;
 						
-						// Regrouper tous les stop_id pour cette station
+						// Utiliser id_ref_zda comme MonitoringRef avec le préfixe STIF:StopArea:SP:
+						const monitoringRef = properties.id_ref_zda ? `STIF:StopArea:SP:${properties.id_ref_zda}:` : null;
+						
+						// Regrouper par gare
 						if (!stopsByNameAndLine.has(stopKey)) {
 							stopsByNameAndLine.set(stopKey, {
 								line,
 								stopName,
-								stopIds: [],
+								monitoringRef,
+								exploitant: properties.exploitant,
 								lat,
 								lng
 							});
 						}
-						
-						stopsByNameAndLine.get(stopKey).stopIds.push(properties.stop_id);
 					}
 				}
 				
-				// Deuxième passage: créer un seul marker par station avec tous les stop_id
+				// Créer les markers
 				for (const [stopKey, stopData] of stopsByNameAndLine) {
-					const { line, stopName, stopIds, lat, lng } = stopData;
+					const { line, stopName, monitoringRef, exploitant, lat, lng } = stopData;
+					
+					if (!monitoringRef) {
+						stopsSkipped++;
+						continue;
+					}
 					
 					// Calculer la position ajustée pour éviter les superpositions
 					const adjustedPosition = getAdjustedMarkerPosition(
@@ -397,16 +375,19 @@ import Layout from '../layouts/Layout.astro';
 						line.routeId
 					);
 					
-					// Créer le marker avec tous les stop_id
+					// Créer le marker
 					const marker = createStopMarker(
 						adjustedPosition,
-						{ stop_name: stopName, stop_ids: stopIds, original_lat: lat, original_lng: lng },
+						{ 
+							stop_name: stopName, 
+							monitoring_ref: monitoringRef,
+							exploitant: exploitant,
+							original_lat: lat, 
+							original_lng: lng 
+						},
 						line
 					);
-					
-					if (stopsLoaded < 5) {
-						console.log('Marker créé:', marker, 'pour arrêt:', stopName, 'ligne:', line.routeName, 'avec', stopIds.length, 'directions');
-					}
+
 					
 					if (!window.filterPanelData.allStops[line.routeId]) {
 						window.filterPanelData.allStops[line.routeId] = [];
@@ -421,18 +402,18 @@ import Layout from '../layouts/Layout.astro';
 					stopsLoaded++;
 					
 					if (stopsLoaded % 100 === 0) {
-						status.textContent = `Arrêts: ${stopsLoaded}...`;
+						status.textContent = `Gares: ${stopsLoaded}...`;
 						await new Promise(resolve => setTimeout(resolve, 5));
 					}
 				}
 				
-				console.log(`${stopsLoaded} arrêts chargés, ${stopsSkipped} ignorés, ${stopsDuplicated} doublons supprimés`);
+				console.log(`✅ ${stopsLoaded} gares chargées (${stopsSkipped} ignorées - lignes non trouvées ou sans idrefligc)`);
 				
 				// Afficher initialement selon le zoom
 				updateStopsVisibility();
 			}
 		} catch (error) {
-			console.error('Erreur chargement arrêts:', error);
+			console.error('Erreur chargement gares:', error);
 		}
 	}
 	
@@ -540,16 +521,15 @@ import Layout from '../layouts/Layout.astro';
 				currentRefreshInterval = null;
 			}
 			
-			const stopIds = properties.stop_ids || [properties.stop_id];
-			const hasMultipleDirections = stopIds.length > 1;
+			const monitoringRef = properties.monitoring_ref;
 			
 			// Créer le conteneur avec Tailwind CSS
 			const contentDiv = document.createElement('div');
-			contentDiv.className = 'p-2.5 min-w-[250px] z-30';
+			contentDiv.className = 'p-2.5 min-w-[250px]';
 			
 			const title = document.createElement('h4');
 			title.className = 'm-0 mb-2 text-sm font-semibold';
-			title.textContent = properties.stop_name || 'Arrêt';
+			title.textContent = properties.stop_name || 'Gare';
 			contentDiv.appendChild(title);
 			
 			const lineInfo = document.createElement('p');
@@ -557,11 +537,12 @@ import Layout from '../layouts/Layout.astro';
 			lineInfo.textContent = `Ligne: ${line.routeName}`;
 			contentDiv.appendChild(lineInfo);
 			
-			if (hasMultipleDirections) {
-				const directionInfo = document.createElement('p');
-				directionInfo.className = 'my-1 text-[11px] text-gray-400';
-				directionInfo.textContent = 'Toutes directions';
-				contentDiv.appendChild(directionInfo);
+			// Afficher l'exploitant
+			if (properties.exploitant) {
+				const exploitantInfo = document.createElement('p');
+				exploitantInfo.className = 'my-1 text-[10px] text-gray-300';
+				exploitantInfo.textContent = properties.exploitant;
+				contentDiv.appendChild(exploitantInfo);
 			}
 			
 			const schedulesContainer = document.createElement('div');
@@ -584,26 +565,11 @@ import Layout from '../layouts/Layout.astro';
 			currentInfoWindow = infoWindow;
 			infoWindow.open(map);
 			
-			// Fonction pour charger les horaires de toutes les directions
+			// Fonction pour charger les horaires
 			const loadSchedules = async () => {
-				if (stopIds && stopIds.length > 0 && line.originalRouteId) {
+				if (monitoringRef && line.originalRouteId) {
 					try {
-						// Récupérer les horaires pour chaque direction
-						const allSchedulesPromises = stopIds.map(stopId => 
-							window.fetchStopSchedules(stopId, line.originalRouteId, line.routeType)
-						);
-						
-						const allSchedulesResults = await Promise.all(allSchedulesPromises);
-						
-						// Fusionner tous les horaires
-						const allSchedules = allSchedulesResults.flat();
-						
-						// Trier par ordre chronologique (utiliser expectedTime si disponible, sinon aimedTime)
-						allSchedules.sort((a, b) => {
-							const timeA = new Date(a.expectedTime || a.aimedTime);
-							const timeB = new Date(b.expectedTime || b.aimedTime);
-							return timeA - timeB;
-						});
+						const allSchedules = await window.fetchStopSchedules(monitoringRef, line.originalRouteId, line.routeType);
 						
 						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType);
 						const container = document.getElementById('schedules-content');
@@ -723,7 +689,7 @@ import Layout from '../layouts/Layout.astro';
 			
 			if (properties.operatorname) {
 				const operatorP = document.createElement('p');
-				operatorP.className = 'my-1 text-xs text-gray-400';
+				operatorP.className = 'my-1 text-xs text-gray-300';
 				operatorP.textContent = `Opérateur: ${properties.operatorname}`;
 				contentDiv.appendChild(operatorP);
 			}

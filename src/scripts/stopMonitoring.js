@@ -10,41 +10,14 @@ const MAX_SCHEDULES_METRO_TRAM = 5; // Nombre d'horaires affichés pour Métro/T
 const MAX_SCHEDULES_RAIL = 10; // Nombre d'horaires affichés pour RER/TER/Transilien
 
 /**
- * Extrait l'ID numérique d'un stop_id complexe
- * Exemples:
- * - "IDFM:monomodalStopPlace:470195" => "470195"
- * - "473921" => "473921"
- * - "IDFM:StopPoint:Q:473921:" => "473921"
+ * Extrait le MonitoringRef depuis un MonitoringRef complet
+ * Le MonitoringRef est déjà au format STIF:StopArea:SP:xxxxx depuis emplacement-des-gares-idf
  */
-function extractStopNumber(stopId) {
-	if (!stopId) return null;
+function extractMonitoringRef(monitoringRef) {
+	if (!monitoringRef) return null;
 	
-	let cleaned = stopId;
-	
-	// Supprimer les préfixes courants
-	cleaned = cleaned.replace(/^IDFM:/, '');
-	cleaned = cleaned.replace(/^STIF:/, '');
-	cleaned = cleaned.replace(/^StopPoint:Q:/, '');
-	cleaned = cleaned.replace(/^StopPoint:/, '');
-	
-	// Extraire le numéro si format monomodalStopPlace
-	if (cleaned.includes('monomodalStopPlace:')) {
-		const match = cleaned.match(/monomodalStopPlace:(\d+)/);
-		if (match) {
-			return match[1];
-		}
-	}
-	
-	// Extraire juste les chiffres si format avec séparateurs
-	const numberMatch = cleaned.match(/(\d+)/);
-	if (numberMatch) {
-		return numberMatch[1];
-	}
-	
-	// Enlever les deux-points finaux
-	cleaned = cleaned.replace(/:+$/, '');
-	
-	return cleaned;
+	// Le MonitoringRef est déjà au bon format depuis le dataset
+	return monitoringRef;
 }
 
 /**
@@ -61,41 +34,26 @@ function cleanLineRef(lineRef) {
 }
 
 /**
- * Récupère les horaires en temps réel pour un arrêt
+ * Récupère les horaires en temps réel pour une gare
  */
-export async function fetchStopSchedules(stopId, lineRef, routeType) {
+export async function fetchStopSchedules(monitoringRef, lineRef, routeType) {
 	try {
-		const stopNumber = extractStopNumber(stopId);
+		const cleanedMonitoringRef = extractMonitoringRef(monitoringRef);
 		const cleanedLineRef = cleanLineRef(lineRef);
 		
-		if (!stopNumber) {
-			console.warn('Impossible d\'extraire le numéro d\'arrêt de:', stopId);
+		if (!cleanedMonitoringRef) {
+			console.warn('MonitoringRef invalide:', monitoringRef);
 			return [];
-		}
-		
-		// Construire les références STIF selon le format de l'API
-		// Utiliser StopPoint pour métro/tram, StopArea pour RER/TER/Transilien
-		let monitoringRef;
-		if (routeType === 'Métro' || routeType === 'Tram') {
-			monitoringRef = `STIF:StopPoint:Q:${stopNumber}:`;
-		} else if (routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') {
-			monitoringRef = `STIF:StopArea:SP:${stopNumber}:`;
-		} else {
-			// Par défaut, utiliser StopPoint
-			monitoringRef = `STIF:StopPoint:Q:${stopNumber}:`;
 		}
 		
 		const lineRefParam = `STIF:Line::${cleanedLineRef}:`;
 		
-		const url = `${API_URL}?MonitoringRef=${encodeURIComponent(monitoringRef)}&LineRef=${encodeURIComponent(lineRefParam)}`;
+		const url = `${API_URL}?MonitoringRef=${encodeURIComponent(cleanedMonitoringRef)}&LineRef=${encodeURIComponent(lineRefParam)}`;
 		
-		console.log('📍 Fetching schedules:');
-		console.log('  Original stopId:', stopId);
-		console.log('  Extracted number:', stopNumber);
-		console.log('  Route type:', routeType);
-		console.log('  MonitoringRef:', monitoringRef);
-		console.log('  LineRef:', lineRefParam);
-		console.log('  URL:', url);
+		console.log('📍 Récupération horaires API stop-monitoring:');
+		console.log('  MonitoringRef (id_ref_zda de la gare):', cleanedMonitoringRef);
+		console.log('  Type de transport:', routeType);
+		console.log('  LineRef (idrefligc de la ligne):', lineRefParam);
 		
 		const response = await fetch(url, {
 			headers: {
@@ -109,8 +67,8 @@ export async function fetchStopSchedules(stopId, lineRef, routeType) {
 			console.error('Response:', errorText);
 			
 			// Si erreur, essayer sans le LineRef (parfois ça aide)
-			const urlWithoutLine = `${API_URL}?MonitoringRef=${encodeURIComponent(monitoringRef)}`;
-			console.log('🔄 Retry without LineRef:', urlWithoutLine);
+			const urlWithoutLine = `${API_URL}?MonitoringRef=${encodeURIComponent(cleanedMonitoringRef)}`;
+			console.log('🔄 Nouvelle tentative sans LineRef (tous les trains de la gare)');
 			
 			const retryResponse = await fetch(urlWithoutLine, {
 				headers: {
@@ -123,12 +81,12 @@ export async function fetchStopSchedules(stopId, lineRef, routeType) {
 			}
 			
 			const data = await retryResponse.json();
-			console.log('✅ Schedules data (without LineRef):', data);
+			console.log('✅ Horaires récupérés sans LineRef:', data.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit?.length || 0, 'passages trouvés');
 			return parseSchedulesData(data);
 		}
 		
 		const data = await response.json();
-		console.log('✅ Schedules data:', data);
+		console.log('✅ Horaires récupérés:', data.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit?.length || 0, 'passages trouvés');
 		return parseSchedulesData(data);
 		
 	} catch (error) {
@@ -196,7 +154,7 @@ function parseSchedulesData(data) {
 			return timeA - timeB;
 		});
 		
-		console.log(`Parsed ${schedules.length} schedules`);
+		console.log(`✅ ${schedules.length} horaires parsés et triés`);
 		
 	} catch (error) {
 		console.error('Erreur parsing horaires:', error);
