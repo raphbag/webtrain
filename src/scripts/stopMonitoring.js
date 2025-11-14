@@ -4,6 +4,7 @@
 
 const API_KEY = 'SvPHVJ5fPXkfJPKsu6958pwLCh5Oidhq';
 const API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring';
+const LINE_REPORTS_API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia';
 
 // Configuration de l'affichage des horaires
 const MAX_SCHEDULES_METRO_TRAM = 5; // Nombre d'horaires affichés pour Métro/Tram
@@ -164,15 +165,357 @@ function parseSchedulesData(data) {
 }
 
 /**
+ * Récupère les perturbations pour une ligne
+ */
+export async function fetchLineDisruptions(lineRef) {
+	try {
+		const cleanedLineRef = cleanLineRef(lineRef);
+		
+		if (!cleanedLineRef) {
+			console.warn('LineRef invalide:', lineRef);
+			return [];
+		}
+		
+		// Construire l'URL avec le LineRef au format Navitia
+		const navitiaLineId = `line:IDFM:${cleanedLineRef}`;
+		const url = `${LINE_REPORTS_API_URL}/lines/${encodeURIComponent(navitiaLineId)}/line_reports`;
+		
+		console.log('📡 Récupération perturbations ligne:', navitiaLineId);
+		console.log('📡 URL:', url);
+		
+		const response = await fetch(url, {
+			headers: {
+				'apikey': API_KEY
+			}
+		});
+		
+		if (!response.ok) {
+			console.warn('Erreur API line_reports:', response.status);
+			return [];
+		}
+		
+		const data = await response.json();
+		console.log('✅ Perturbations récupérées:', data);
+		
+		return parseDisruptionsData(data);
+		
+	} catch (error) {
+		console.error('Error in fetchLineDisruptions:', error);
+		return [];
+	}
+}
+
+/**
+ * Parse les données de perturbations depuis l'API Navitia
+ */
+function parseDisruptionsData(data) {
+	const disruptions = [];
+	
+	try {
+		if (!data || !data.disruptions || data.disruptions.length === 0) {
+			return disruptions;
+		}
+		
+		// Map pour dédupliquer par disruption_id (garder la plus récente)
+		const disruptionsMap = new Map();
+		
+		data.disruptions.forEach(disruption => {
+			const status = disruption.status || 'unknown';
+			const severity = disruption.severity || {};
+			const messages = disruption.messages || [];
+			const applicationPeriods = disruption.application_periods || [];
+			const tags = disruption.tags || [];
+			const disruptionId = disruption.disruption_id;
+			const updatedAt = disruption.updated_at;
+			
+			// Filtrer les perturbations avec le tag "Ascenseur"
+			if (tags.includes('Ascenseur')) {
+				return; // Skip cette perturbation
+			}
+			
+			// Filtrer les perturbations avec le status "future"
+			if (status === 'future') {
+				return; // Skip cette perturbation
+			}
+			
+			// Extraire les différents types de messages
+			const pidsMessage = messages.find(msg => 
+				msg.channel && msg.channel.types?.includes('pids')
+			);
+			
+			const titleMessage = messages.find(msg => 
+				msg.channel && msg.channel.types?.includes('title')
+			);
+			
+			const webMessage = messages.find(msg => 
+				msg.channel && msg.channel.types?.includes('web')
+			);
+			
+			// Vérifier qu'on a au moins un message pids ou title
+			if (!pidsMessage && !titleMessage) {
+				return; // Skip si pas de message principal
+			}
+			
+			// Vérifier qu'il y a des périodes d'application et un message
+			const hasApplicationPeriods = applicationPeriods.length > 0;
+			
+			// Vérifier que la perturbation est actuellement active (dans une période d'application)
+			const now = new Date();
+			const isCurrentlyActive = applicationPeriods.some(period => {
+				if (!period.begin || !period.end) return false;
+				
+				// Convertir les dates du format YYYYMMDDTHHMMSS en Date
+				const parseNavitiaDate = (dateStr) => {
+					const year = parseInt(dateStr.substring(0, 4));
+					const month = parseInt(dateStr.substring(4, 6)) - 1; // mois 0-11
+					const day = parseInt(dateStr.substring(6, 8));
+					const hour = parseInt(dateStr.substring(9, 11));
+					const minute = parseInt(dateStr.substring(11, 13));
+					const second = parseInt(dateStr.substring(13, 15)) || 0;
+					return new Date(year, month, day, hour, minute, second);
+				};
+				
+				const begin = parseNavitiaDate(period.begin);
+				const end = parseNavitiaDate(period.end);
+				
+				return now >= begin && now <= end;
+			});
+			
+			if (status === 'active' && hasApplicationPeriods && isCurrentlyActive) {
+				const disruptionData = {
+					disruptionId: disruptionId,
+					status: status,
+					severity: severity.name || 'Information',
+					effect: severity.effect || 'UNKNOWN_EFFECT',
+					priority: severity.priority || 4,
+					color: severity.color || '',
+					pidsText: pidsMessage?.text || '',
+					titleText: titleMessage?.text || '',
+					webText: webMessage?.text || '',
+					applicationPeriods: applicationPeriods,
+					updatedAt: updatedAt
+				};
+				
+				// Si déjà présent, garder le plus récent (updated_at le plus récent)
+				if (disruptionId) {
+					const existing = disruptionsMap.get(disruptionId);
+					if (!existing) {
+						disruptionsMap.set(disruptionId, disruptionData);
+					} else {
+						// Garder celui avec la meilleure priorité (0 = le plus important)
+						// Si même priorité, garder le plus récent (updated_at)
+						const shouldReplace = 
+							disruptionData.priority < existing.priority ||
+							(disruptionData.priority === existing.priority && 
+							 updatedAt && updatedAt > existing.updatedAt);
+						
+						if (shouldReplace) {
+							disruptionsMap.set(disruptionId, disruptionData);
+						}
+					}
+				} else {
+					// Si pas d'ID, ajouter quand même (cas rare)
+					disruptions.push(disruptionData);
+				}
+			}
+		});
+		
+		// Convertir la Map en tableau
+		disruptionsMap.forEach(disruption => disruptions.push(disruption));
+		
+		console.log(`✅ ${disruptions.length} perturbations actives parsées`);
+		
+		// Trier par priorité (croissant : 0 = plus important = en haut)
+		// Si même priorité, trier par updated_at (plus récent en haut)
+		disruptions.sort((a, b) => {
+			// D'abord comparer les priorités (0 en premier)
+			if (a.priority !== b.priority) {
+				return a.priority - b.priority;
+			}
+			// Si même priorité, comparer les dates (plus récent en premier)
+			if (a.updatedAt && b.updatedAt) {
+				return b.updatedAt.localeCompare(a.updatedAt); // Ordre décroissant pour les dates
+			}
+			return 0;
+		});
+		
+	} catch (error) {
+		console.error('Erreur parsing perturbations:', error);
+	}
+	
+	return disruptions;
+}
+
+/**
+ * Génère un élément DOM pour afficher les perturbations
+ */
+function generateDisruptionsElement(disruptions) {
+	if (!disruptions || disruptions.length === 0) {
+		return null;
+	}
+	
+	const container = document.createElement('div');
+	container.className = 'mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-[11px]';
+	
+	const title = document.createElement('h5');
+	title.className = 'm-0 mb-2 text-xs font-semibold text-yellow-800';
+	title.textContent = `⚠️ Perturbations (${disruptions.length})`;
+	container.appendChild(title);
+	
+	disruptions.forEach((disruption, index) => {
+		const disruptionDiv = document.createElement('div');
+		disruptionDiv.className = 'mb-2 pb-2 border-b border-gray-200 last:border-b-0 last:mb-0 last:pb-0';
+		
+		// Container pour le header (PIDS + Titre avec couleur + date)
+		const headerDiv = document.createElement('div');
+		headerDiv.className = 'flex justify-between items-start gap-2 cursor-pointer hover:opacity-80 transition-opacity';
+		headerDiv.style.color = disruption.color || '#000000';
+		
+		// Partie gauche : Flèche + PIDS (gras) + Titre
+		const leftDiv = document.createElement('div');
+		leftDiv.className = 'flex-1 flex items-start gap-1';
+		
+		// Flèche pour indiquer l'état déroulé/enroulé
+		const arrowSpan = document.createElement('span');
+		arrowSpan.className = 'flex-shrink-0 transition-transform';
+		arrowSpan.textContent = '▶';
+		arrowSpan.id = `arrow-${disruption.disruptionId || index}`;
+		
+		// Vérifier si cette perturbation doit être déroulée (état persistant dans cette session d'infobulle)
+		// Utiliser une clé spécifique qui sera nettoyée à la fermeture de l'infobulle
+		const detailsId = `disruption-details-${disruption.disruptionId || index}`;
+		
+		// Récupérer l'état depuis sessionStorage - par défaut fermé si pas de valeur
+		const savedState = sessionStorage.getItem(detailsId);
+		const wasExpanded = savedState === 'expanded';
+		
+		// Appliquer la rotation de la flèche selon l'état
+		if (wasExpanded) {
+			arrowSpan.style.transform = 'rotate(90deg)';
+		}
+		
+		leftDiv.appendChild(arrowSpan);
+		
+		// Conteneur pour le texte (PIDS + Titre)
+		const textDiv = document.createElement('div');
+		
+		// PIDS en gras
+		if (disruption.pidsText) {
+			const pidsSpan = document.createElement('span');
+			pidsSpan.className = 'font-bold';
+			// Mettre la première lettre en majuscule
+			const pidsTextCapitalized = disruption.pidsText.charAt(0).toUpperCase() + disruption.pidsText.slice(1);
+			pidsSpan.textContent = pidsTextCapitalized;
+			textDiv.appendChild(pidsSpan);
+			
+			// Ajouter un espace si on a aussi le titre
+			if (disruption.titleText) {
+				textDiv.appendChild(document.createTextNode(' '));
+			}
+		}
+		
+		// Titre
+		if (disruption.titleText) {
+			const titleSpan = document.createElement('span');
+			titleSpan.textContent = disruption.titleText;
+			textDiv.appendChild(titleSpan);
+		}
+		
+		leftDiv.appendChild(textDiv);
+		
+		// Date de mise à jour à droite
+		const dateSpan = document.createElement('span');
+		dateSpan.className = 'text-[10px] text-gray-500 flex-shrink-0';
+		if (disruption.updatedAt) {
+			// Format: YYYYMMDDTHHMMSS -> convertir en date lisible
+			const dateStr = disruption.updatedAt;
+			const year = dateStr.substring(0, 4);
+			const month = dateStr.substring(4, 6);
+			const day = dateStr.substring(6, 8);
+			const hour = dateStr.substring(9, 11);
+			const minute = dateStr.substring(11, 13);
+			dateSpan.textContent = `${day}/${month}/${year} ${hour}:${minute}`;
+		}
+		
+		headerDiv.appendChild(leftDiv);
+		headerDiv.appendChild(dateSpan);
+		
+		// Détails déroulables
+		const detailsDiv = document.createElement('div');
+		detailsDiv.className = 'mt-2 text-[11px] text-gray-700';
+		detailsDiv.id = detailsId;
+		
+		// Par défaut, toujours masqué (fermé) - sauf si explicitement marqué comme 'expanded' dans sessionStorage
+		if (!wasExpanded) {
+			detailsDiv.classList.add('hidden');
+		}
+		
+		// Message web en HTML (si disponible)
+		if (disruption.webText) {
+			const webDiv = document.createElement('div');
+			webDiv.className = 'prose prose-sm max-w-none';
+			
+			// Utiliser setHTML si disponible, sinon innerHTML
+			if (typeof webDiv.setHTML === 'function') {
+				webDiv.setHTML(disruption.webText);
+			} else {
+				webDiv.innerHTML = disruption.webText;
+			}
+			
+			detailsDiv.appendChild(webDiv);
+		}
+		
+		// Événement de clic pour dérouler/enrouler
+		headerDiv.addEventListener('click', () => {
+			const isHidden = detailsDiv.classList.contains('hidden');
+			const arrow = document.getElementById(`arrow-${disruption.disruptionId || index}`);
+			
+			if (isHidden) {
+				detailsDiv.classList.remove('hidden');
+				if (arrow) {
+					arrow.style.transform = 'rotate(90deg)';
+				}
+				// Sauvegarder l'état comme déroulé
+				sessionStorage.setItem(detailsId, 'expanded');
+			} else {
+				detailsDiv.classList.add('hidden');
+				if (arrow) {
+					arrow.style.transform = 'rotate(0deg)';
+				}
+				// Sauvegarder l'état comme enroulé
+				sessionStorage.setItem(detailsId, 'collapsed');
+			}
+		});
+		
+		disruptionDiv.appendChild(headerDiv);
+		disruptionDiv.appendChild(detailsDiv);
+		container.appendChild(disruptionDiv);
+	});
+	
+	return container;
+}
+
+/**
  * Génère un élément DOM pour afficher les horaires dans une info-bulle
  */
-export function generateSchedulesElement(schedules, routeType) {
+export function generateSchedulesElement(schedules, routeType, disruptions = null) {
 	// Créer le conteneur principal
 	const container = document.createElement('div');
 	container.className = 'text-[11px]';
 	
+	// Afficher les perturbations en premier si présentes
+	if (disruptions && disruptions.length > 0) {
+		const disruptionsElement = generateDisruptionsElement(disruptions);
+		if (disruptionsElement) {
+			container.appendChild(disruptionsElement);
+		}
+	}
+	
 	if (!schedules || schedules.length === 0) {
-		container.innerHTML = '<p class="text-[11px] text-gray-400">Aucun horaire disponible</p>';
+		const noScheduleP = document.createElement('p');
+		noScheduleP.className = 'text-[11px] text-gray-400 mt-2';
+		noScheduleP.textContent = 'Aucun horaire disponible';
+		container.appendChild(noScheduleP);
 		return container;
 	}
 	

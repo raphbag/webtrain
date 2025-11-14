@@ -5,13 +5,18 @@ import Layout from '../layouts/Layout.astro';
 
 <script>
 	import '../scripts/markerClusterer.js';
-	import { fetchStopSchedules, generateSchedulesElement } from '../scripts/stopMonitoring.js';
+	import { fetchStopSchedules, generateSchedulesElement, fetchLineDisruptions } from '../scripts/stopMonitoring.js';
 	
 	// Exposer globalement pour utilisation dans le code inline
-	// @ts-ignore: extending window with runtime-only properties
-	window.fetchStopSchedules = fetchStopSchedules;
-	// @ts-ignore: extending window with runtime-only properties
-	window.generateSchedulesElement = generateSchedulesElement;
+	// @ts-ignore
+	if (typeof window !== 'undefined') {
+		// @ts-ignore
+		window.fetchStopSchedules = fetchStopSchedules;
+		// @ts-ignore
+		window.generateSchedulesElement = generateSchedulesElement;
+		// @ts-ignore
+		window.fetchLineDisruptions = fetchLineDisruptions;
+	}
 </script>
 
 <Layout title="Webtrain - Visualisation des lignes de transport">
@@ -521,21 +526,51 @@ import Layout from '../layouts/Layout.astro';
 				currentRefreshInterval = null;
 			}
 			
+			// Nettoyer l'état des perturbations déroulées
+			// Cela assure que toutes les perturbations sont fermées par défaut à l'ouverture
+			Object.keys(sessionStorage).forEach(key => {
+				if (key.startsWith('disruption-details-')) {
+					sessionStorage.removeItem(key);
+				}
+			});
+			
 			const monitoringRef = properties.monitoring_ref;
 			
 			// Créer le conteneur avec Tailwind CSS
 			const contentDiv = document.createElement('div');
-			contentDiv.className = 'p-2.5 min-w-[250px]';
+			contentDiv.className = 'p-2.5 pt-0 min-w-[250px] max-w-[400px]';
+			
+			// Header avec logo de ligne et titre
+			const headerDiv = document.createElement('div');
+			headerDiv.className = 'flex items-start gap-2 mb-2';
+			
+			// Logo de la ligne (si disponible)
+			if (line.imageUrl) {
+				const lineImage = document.createElement('img');
+				lineImage.src = line.imageUrl;
+				lineImage.alt = line.routeName;
+				lineImage.className = 'w-8 h-8 object-contain flex-shrink-0 my-auto';
+				lineImage.onerror = function() {
+					this.style.display = 'none'; // Cacher si l'image ne charge pas
+				};
+				headerDiv.appendChild(lineImage);
+			}
+			
+			// Conteneur pour titre et info ligne
+			const titleContainer = document.createElement('div');
+			titleContainer.className = 'flex-1';
 			
 			const title = document.createElement('h4');
-			title.className = 'm-0 mb-2 text-sm font-semibold';
+			title.className = 'm-0 mb-1 text-sm font-semibold';
 			title.textContent = properties.stop_name || 'Gare';
-			contentDiv.appendChild(title);
+			titleContainer.appendChild(title);
 			
 			const lineInfo = document.createElement('p');
 			lineInfo.className = 'my-1 text-xs text-gray-600';
 			lineInfo.textContent = `Ligne: ${line.routeName}`;
-			contentDiv.appendChild(lineInfo);
+			titleContainer.appendChild(lineInfo);
+			
+			headerDiv.appendChild(titleContainer);
 			
 			// Afficher l'exploitant
 			if (properties.exploitant) {
@@ -558,20 +593,26 @@ import Layout from '../layouts/Layout.astro';
 			
 			const infoWindow = new google.maps.InfoWindow({
 				content: contentDiv,
-				position
+				headerContent: headerDiv,
+				position,
+				zIndex: 10000
 			});
 			
 			// Stocker l'infoWindow actuelle
 			currentInfoWindow = infoWindow;
 			infoWindow.open(map);
 			
-			// Fonction pour charger les horaires
+			// Fonction pour charger les horaires et perturbations
 			const loadSchedules = async () => {
 				if (monitoringRef && line.originalRouteId) {
 					try {
-						const allSchedules = await window.fetchStopSchedules(monitoringRef, line.originalRouteId, line.routeType);
+						// Charger horaires et perturbations en parallèle
+						const [allSchedules, disruptions] = await Promise.all([
+							window.fetchStopSchedules(monitoringRef, line.originalRouteId, line.routeType),
+							window.fetchLineDisruptions(line.originalRouteId)
+						]);
 						
-						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType);
+						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType, disruptions);
 						const container = document.getElementById('schedules-content');
 						if (container) {
 							container.innerHTML = '';
@@ -604,6 +645,14 @@ import Layout from '../layouts/Layout.astro';
 					currentRefreshInterval = null;
 				}
 				currentInfoWindow = null;
+				
+				// Nettoyer l'état des perturbations déroulées pour cette station
+				// Cela permet de remettre toutes les perturbations fermées par défaut à la prochaine ouverture
+				Object.keys(sessionStorage).forEach(key => {
+					if (key.startsWith('disruption-details-')) {
+						sessionStorage.removeItem(key);
+					}
+				});
 			});
 		});
 
@@ -666,7 +715,7 @@ import Layout from '../layouts/Layout.astro';
 			
 			// Créer le conteneur avec Tailwind CSS
 			const contentDiv = document.createElement('div');
-			contentDiv.className = 'p-2.5 min-w-[200px]';
+			contentDiv.className = 'p-2.5 pt-0 min-w-[200px]';
 			
 			const title = document.createElement('h3');
 			title.className = 'm-0 mb-2 text-base font-semibold';
@@ -696,7 +745,8 @@ import Layout from '../layouts/Layout.astro';
 			
 			const infoWindow = new google.maps.InfoWindow({
 				content: contentDiv,
-				position: event.latLng
+				position: event.latLng,
+				zIndex: 10000
 			});
 			
 			// Stocker l'infoWindow actuelle
