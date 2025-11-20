@@ -4,7 +4,7 @@
 
 const API_KEY = 'SvPHVJ5fPXkfJPKsu6958pwLCh5Oidhq';
 const API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring';
-const LINE_REPORTS_API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia';
+const LINE_REPORTS_API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/line_reports';
 
 // Configuration de l'affichage des horaires
 const MAX_SCHEDULES_METRO_TRAM = 5; // Nombre d'horaires affichés pour Métro/Tram
@@ -165,9 +165,9 @@ function parseSchedulesData(data) {
 }
 
 /**
- * Récupère les perturbations pour une ligne
+ * Récupère les perturbations pour une ligne et un arrêt spécifique
  */
-export async function fetchLineDisruptions(lineRef) {
+export async function fetchLineDisruptions(lineRef, idRefZdA = null, routeType = null) {
 	try {
 		const cleanedLineRef = cleanLineRef(lineRef);
 		
@@ -176,11 +176,28 @@ export async function fetchLineDisruptions(lineRef) {
 			return [];
 		}
 		
-		// Construire l'URL avec le LineRef au format Navitia
-		const navitiaLineId = `line:IDFM:${cleanedLineRef}`;
-		const url = `${LINE_REPORTS_API_URL}/lines/${encodeURIComponent(navitiaLineId)}/line_reports`;
+		let url;
 		
-		console.log('📡 Récupération perturbations ligne:', navitiaLineId);
+		// Pour TER : utiliser uniquement le stop_point (pas de ligne), departures car il y a les disruptions par arret
+		if (routeType === 'TER' && idRefZdA) {
+			const stopPointId = `stop_point:IDFM:monomodalStopPlace:${idRefZdA}`;
+			url = `${LINE_REPORTS_API_URL}/stop_points/${encodeURIComponent(stopPointId)}/departures?count=10`;
+			console.log('📡 Récupération perturbations TER (stop_point seul):', stopPointId);
+		} 
+		// Si idRefZdA est fourni (RER, Transilien), construire l'URL avec ligne + stop_point, departures car il y a les disruptions par arret
+		else if (idRefZdA) {
+			const navitiaLineId = `line:IDFM:${cleanedLineRef}`;
+			const stopPointId = `stop_point:IDFM:monomodalStopPlace:${idRefZdA}`;
+			url = `${LINE_REPORTS_API_URL}/lines/${encodeURIComponent(navitiaLineId)}/stop_points/${encodeURIComponent(stopPointId)}/departures?count=10`;
+			console.log('📡 Récupération perturbations ligne + arrêt:', navitiaLineId, stopPointId);
+		} 
+		// Sinon, utiliser line_reports (Métro, Tram)
+		else {
+			const navitiaLineId = `line:IDFM:${cleanedLineRef}`;
+			url = `${LINE_REPORTS_API_URL}/lines/${encodeURIComponent(navitiaLineId)}/line_reports`;
+			console.log('📡 Récupération perturbations ligne:', navitiaLineId);
+		}
+		
 		console.log('📡 URL:', url);
 		
 		const response = await fetch(url, {

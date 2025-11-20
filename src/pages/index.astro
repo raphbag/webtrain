@@ -606,10 +606,15 @@ import Layout from '../layouts/Layout.astro';
 			const loadSchedules = async () => {
 				if (monitoringRef && line.originalRouteId) {
 					try {
+						// Pour Métro et Tram : utiliser line_reports (pas de stop_point)
+						// Pour RER, TER, Transilien : utiliser disruptions avec stop_point
+						const useStopPoint = line.routeType !== 'Métro' && line.routeType !== 'Tram';
+						const idRefZdA = useStopPoint ? monitoringRef.split(':')[3] : null;
+						
 						// Charger horaires et perturbations en parallèle
 						const [allSchedules, disruptions] = await Promise.all([
 							window.fetchStopSchedules(monitoringRef, line.originalRouteId, line.routeType),
-							window.fetchLineDisruptions(line.originalRouteId)
+							window.fetchLineDisruptions(line.originalRouteId, idRefZdA, line.routeType)
 						]);
 						
 						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType, disruptions);
