@@ -685,7 +685,7 @@ export function generateSchedulesElement(schedules, routeType, disruptions = nul
 			const tdPlatform = document.createElement('td');
 			tdPlatform.className = 'p-1 text-center';
 			if (isCancelled) tdPlatform.className += ' line-through text-red-600';
-			tdPlatform.textContent = schedule.platform;
+			tdPlatform.textContent = schedule.platform === 'unknown' ? '--' : schedule.platform;
 			tr.appendChild(tdPlatform);
 		}
 		
