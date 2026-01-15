@@ -394,8 +394,8 @@ function generateDisruptionsElement(disruptions) {
 		
 		// Flèche pour indiquer l'état déroulé/enroulé
 		const arrowSpan = document.createElement('span');
-		arrowSpan.className = 'flex-shrink-0 transition-transform';
-		arrowSpan.textContent = '▶';
+		arrowSpan.className = 'flex-shrink-0 transition-transform inline-flex items-center';
+		arrowSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 		arrowSpan.id = `arrow-${disruption.disruptionId || index}`;
 		
 		// Vérifier si cette perturbation doit être déroulée (état persistant dans cette session d'infobulle)
