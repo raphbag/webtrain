@@ -3,7 +3,7 @@
 ---
 
 <div id="filterPanel" class="fixed top-[100px] left-5 w-80 max-h-[calc(100vh-120px)] bg-slate-400/15 backdrop-blur-xl -webkit-backdrop-blur-xl border border-white/20 rounded-2xl shadow-lg z-40 hidden flex-col transition-all duration-300 hover:bg-slate-400/25 hover:shadow-2xl [&_input[type=checkbox]]:appearance-none [&_input[type=checkbox]]:w-4 [&_input[type=checkbox]]:h-4 [&_input[type=checkbox]]:border-2 [&_input[type=checkbox]]:border-white/60 [&_input[type=checkbox]]:rounded [&_input[type=checkbox]]:bg-white/10 [&_input[type=checkbox]]:cursor-pointer [&_input[type=checkbox]]:flex-shrink-0 [&_input[type=checkbox]:checked]:bg-white/90 [&_input[type=checkbox]:checked]:border-white/90 [&_input[type=checkbox]]:relative [&_input[type=checkbox]:checked]:after:content-['✓'] [&_input[type=checkbox]:checked]:after:absolute [&_input[type=checkbox]:checked]:after:top-1/2 [&_input[type=checkbox]:checked]:after:left-1/2 [&_input[type=checkbox]:checked]:after:-translate-x-1/2 [&_input[type=checkbox]:checked]:after:-translate-y-1/2 [&_input[type=checkbox]:checked]:after:text-slate-800 [&_input[type=checkbox]:checked]:after:text-xs [&_input[type=checkbox]:checked]:after:font-bold">
-	<div id="filterHeader" class="flex justify-between items-center p-5 border-b border-white/20 backdrop-blur-lg">
+	<div id="filterHeader" class="flex justify-between items-center p-5 border-b border-white/20 backdrop-blur-lg rounded-t-2xl">
 		<h3 class="m-0 text-lg font-bold text-white drop-shadow-[0_2px_10px_rgba(0,0,0,0.2)]">Filtres</h3>
 		<button id="toggleFilters" aria-label="Toggle filters" class="bg-white/20 border border-white/30 text-xl cursor-pointer p-0 w-8 h-8 flex items-center justify-center rounded-lg text-white transition-all duration-300 font-bold hover:bg-white/30 hover:scale-110">−</button>
 	</div>
@@ -12,7 +12,7 @@
 			<button id="selectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/30 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:scale-105">Tout sélectionner</button>
 			<button id="deselectAllBtn" class="flex-1 py-2.5 px-3.5 text-xs border border-white/30 bg-white/30 backdrop-blur-lg rounded-lg cursor-pointer transition-all duration-300 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)] hover:bg-white/25 hover:border-white/40 hover:scale-105">Tout désélectionner</button>
 		</div>
-		<div id="filterCategories"></div>
+		<div id="filterCategories" class="space-y-2"></div>
 	</div>
 </div>
 
@@ -140,13 +140,20 @@
 		
 		container.innerHTML = '';
 		
-		// Ordre des catégories souhaité
-		const categoryOrder = ['Métro', 'RER', 'Transilien', 'TER', 'Tram'];
+		// Ordre des catégories souhaité (Autres à la fin pour les lignes non classées)
+		const categoryOrder = ['Métro', 'RER', 'Transilien', 'TER', 'Tram', 'Autres'];
 		const sortedCategories = categoryOrder.filter(cat => categories[cat]);
+		
+		// Ajouter les catégories non listées dans l'ordre (au cas où)
+		Object.keys(categories).forEach(cat => {
+			if (!sortedCategories.includes(cat)) {
+				sortedCategories.push(cat);
+			}
+		});
 		
 		sortedCategories.forEach(categoryName => {
 			const categoryDiv = document.createElement('div');
-			categoryDiv.className = 'mb-3 border border-white/25 rounded-xl overflow-hidden bg-white/10 backdrop-blur-xl transition-all duration-300 hover:bg-white/15 hover:border-white/35';
+			categoryDiv.className = 'border border-white/25 rounded-xl overflow-hidden bg-white/10 backdrop-blur-xl transition-all duration-300 hover:bg-white/15 hover:border-white/35';
 			
 			const routeIds = categories[categoryName];
 			const visibleCount = routeIds.filter(id => allLines[id]?.visible).length;
@@ -166,15 +173,60 @@
 			const linesList = document.createElement('div');
 			linesList.className = 'max-h-60 overflow-y-auto bg-white/5 hidden';
 			
-			// Trier les lignes par nom
+			// Trier les lignes par nom (numérique si possible)
 			const sortedLines = routeIds
 				.map(id => allLines[id])
 				.filter(line => line)
 				.sort((a, b) => {
-					const aNum = parseInt(a.routeName) || 0;
-					const bNum = parseInt(b.routeName) || 0;
-					if (aNum && bNum) return aNum - bNum;
-					return a.routeName.localeCompare(b.routeName);
+					// Extraire la partie après le type de transport (ex: "Tram 1" -> "1", "RER A" -> "A")
+					const extractSortKey = (name: string) => {
+						const cleanName = name.trim();
+						
+						// Chercher un nombre à la fin (ex: "Tram 1", "Métro 14", "Tram 3a", "Tram 3b")
+						const numberMatch = cleanName.match(/(\d+)([a-zA-Z]*)$/);
+						if (numberMatch) {
+							const num = parseInt(numberMatch[1], 10);
+							const suffix = numberMatch[2].toLowerCase(); // "a", "b", "bis", etc.
+							return { type: 'number', num, suffix };
+						}
+						
+						// Chercher une lettre seule à la fin (ex: "RER A", "RER B")
+						const letterMatch = cleanName.match(/\s([A-Za-z])$/);
+						if (letterMatch) {
+							return { type: 'letter', letter: letterMatch[1].toUpperCase() };
+						}
+						
+						// Sinon, utiliser le nom complet pour le tri alphabétique
+						return { type: 'string', value: cleanName };
+					};
+					
+					const keyA = extractSortKey(a.routeName);
+					const keyB = extractSortKey(b.routeName);
+					
+					// Comparer selon le type
+					// Les nombres en premier, puis les lettres, puis les chaînes
+					const typeOrder: { [key: string]: number } = { 'number': 0, 'letter': 1, 'string': 2 };
+					if (keyA.type !== keyB.type) {
+						return typeOrder[keyA.type] - typeOrder[keyB.type];
+					}
+					
+					// Même type : comparer les valeurs
+					if (keyA.type === 'number' && keyB.type === 'number') {
+						const numA = keyA.num ?? 0;
+						const numB = keyB.num ?? 0;
+						if (numA !== numB) {
+							return numA - numB;
+						}
+						// Même numéro : comparer les suffixes (a < b < bis)
+						return (keyA.suffix || '').localeCompare(keyB.suffix || '');
+					}
+					
+					if (keyA.type === 'letter' && keyB.type === 'letter') {
+						return (keyA.letter || '').localeCompare(keyB.letter || '');
+					}
+					
+					// Chaînes : tri alphabétique
+					return (keyA.value || '').localeCompare(keyB.value || '');
 				});
 			
 			sortedLines.forEach(line => {
