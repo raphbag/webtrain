@@ -1,8 +1,9 @@
 ﻿---
+const { env } = Astro.locals.runtime;
 import FilterPanel from '../components/FilterPanel.astro';
 import Layout from '../layouts/Layout.astro';
 
-const googleMapsApiKey = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY;
+const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 ---
 
 <script>

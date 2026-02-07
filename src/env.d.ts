@@ -6,6 +6,16 @@ declare namespace App {
 	interface Locals extends Runtime {}
 }
 
+declare namespace Cloudflare {
+	interface Env {
+		ASSETS: Fetcher;
+		IDFM_API_KEY: string;
+		PUBLIC_GOOGLE_MAPS_API_KEY: string;
+	}
+}
+
+interface Env extends Cloudflare.Env {}
+
 interface ImportMetaEnv {
 	// Clés API publiques (accessibles côté client)
 	// Les clés PUBLIC_* sont exposées dans le HTML - sécurisez-les avec des restrictions de domaine

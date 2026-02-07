@@ -1,6 +1,5 @@
 export const prerender = false;
 
-const API_KEY = import.meta.env.IDFM_API_KEY;
 const API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring';
 
 function extractMonitoringRef(monitoringRef: string | null): string | null {
@@ -18,8 +17,10 @@ function cleanLineRef(lineRef: string | null): string | null {
 	return cleaned;
 }
 
-export async function GET({ url }: { url: URL }) {
+export async function GET({ url, locals }: { url: URL; locals: any }) {
 	try {
+		const { env } = locals.runtime;
+		const API_KEY = env.IDFM_API_KEY;
 		const monitoringRef = url.searchParams.get('monitoringRef');
 		const lineRef = url.searchParams.get('lineRef');
 		
