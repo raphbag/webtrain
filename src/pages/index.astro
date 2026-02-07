@@ -21,12 +21,6 @@ import Layout from '../layouts/Layout.astro';
 
 <Layout title="Webtrain - Visualisation des lignes de transport">
 	<div id="map" class="h-screen w-full z-0"></div>
-	
-	<!-- Contrôles principaux -->
-	<div id="controls" class="absolute top-5 left-1/2 -translate-x-1/2 z-20 bg-white px-4 py-3 rounded-lg shadow-md text-center">
-		<button id="loadLinesBtn" class="bg-blue-600 text-white border-0 px-5 py-2.5 my-2 rounded cursor-pointer text-sm font-medium hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed">Charger les lignes de transport</button>
-		<div id="status" class="text-xs text-gray-600 font-medium"></div>
-	</div>
 
 	<FilterPanel />
 </Layout>
@@ -37,11 +31,9 @@ import Layout from '../layouts/Layout.astro';
 		v: "weekly"
 	});
 
-	// URLs des datasets IDFM
-	// Réseau ferré (métro, RER, tramway, train) - tracés précis
-	const FERRE_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/traces-du-reseau-ferre-idf/exports/geojson?limit=-1';
-	// Emplacement des gares IDF (pour les arrêts, images et exploitants)
-	const GARES_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/emplacement-des-gares-idf/exports/geojson?limit=-1';
+	// URLs des endpoints serveur
+	const FERRE_URL = '/lignes.json';
+	const GARES_URL = '/gares.json';
 	
 	// Configuration
 	const REFRESH_INTERVAL_MS = 10000; // Intervalle d'actualisation en millisecondes (10 secondes)
@@ -103,16 +95,12 @@ import Layout from '../layouts/Layout.astro';
 			updateStopsVisibility();
 		});
 
-		// Activer le bouton de chargement des lignes
-		document.getElementById('loadLinesBtn').addEventListener('click', loadTransitLines);
+		// Charger automatiquement les lignes de transport
+		loadTransitLines();
 	}
 
 	async function loadTransitLines() {
-		const btn = document.getElementById('loadLinesBtn');
-		const status = document.getElementById('status');
-		
-		btn.disabled = true;
-		status.textContent = 'Chargement des gares...';
+		console.log('🚀 Chargement automatique des lignes de transport...');
 		
 		try {
 			// Réinitialiser les données
@@ -123,7 +111,7 @@ import Layout from '../layouts/Layout.astro';
 			const bounds = new google.maps.LatLngBounds();
 			
 			// Charger le réseau ferré
-			status.textContent = 'Chargement du réseau ferré d\'Île-de-France...';
+			console.log('📡 Chargement du réseau ferré d\'Île-de-France...');
 			const ferreResponse = await fetch(FERRE_URL);
 			if (!ferreResponse.ok) {
 				throw new Error(`Erreur HTTP: ${ferreResponse.status}`);
@@ -133,7 +121,6 @@ import Layout from '../layouts/Layout.astro';
 			
 			if (ferreData.features && ferreData.features.length > 0) {
 				console.log(`📍 ${ferreData.features.length} segments de lignes ferrées à traiter`);
-				status.textContent = `${ferreData.features.length} lignes ferrées trouvées. Tracé en cours...`;
 				
 				for (const feature of ferreData.features) {
 					if (feature.geometry && feature.properties) {
@@ -234,18 +221,17 @@ import Layout from '../layouts/Layout.astro';
 						}
 						
 						if (drawn % 20 === 0) {
-							status.textContent = `Réseau ferré: ${drawn} lignes...`;
+							console.log(`Réseau ferré: ${drawn} lignes...`);
 							await new Promise(resolve => setTimeout(resolve, 10));
 						}
 					}
 				}
 				
-				status.textContent = `✓ ${drawn} lignes ferrées affichées !`;
 				console.log(`✅ ${drawn} lignes ferrées chargées:`, Object.keys(window.filterPanelData.categories).map(cat => `${cat} (${window.filterPanelData.categories[cat].length})`).join(', '));
 				
 				// Charger les gares
-				status.textContent = 'Chargement des gares...';
-				await loadStops(bounds, status);
+				console.log('📡 Chargement des gares...');
+				await loadStops(bounds);
 				
 				// Ajuster la vue pour afficher toutes les lignes
 				map.fitBounds(bounds);
@@ -258,27 +244,16 @@ import Layout from '../layouts/Layout.astro';
 					window.showFilterPanel();
 				}
 				
-				status.textContent = `✓ ${drawn} lignes ferrées et arrêts affichés !`;
-				
-				// Masquer le conteneur de contrôles après un court délai
-				setTimeout(() => {
-					const controls = document.getElementById('controls');
-					if (controls) {
-						controls.style.display = 'none';
-					}
-				}, 2000);
+				console.log(`✅ ${drawn} lignes ferrées et arrêts affichés !`);
 			} else {
-				status.textContent = 'Aucune ligne trouvée dans les données';
+				console.warn('Aucune ligne trouvée dans les données');
 			}
 		} catch (error) {
 			console.error('Erreur:', error);
-			status.textContent = `Erreur: ${error.message}`;
-		} finally {
-			btn.disabled = false;
 		}
 	}
 
-	async function loadStops(bounds, status) {
+	async function loadStops(bounds) {
 		try {
 			const response = await fetch(GARES_URL);
 			if (!response.ok) {
@@ -412,7 +387,7 @@ import Layout from '../layouts/Layout.astro';
 					stopsLoaded++;
 					
 					if (stopsLoaded % 100 === 0) {
-						status.textContent = `Gares: ${stopsLoaded}...`;
+						console.log(`Gares: ${stopsLoaded}...`);
 						await new Promise(resolve => setTimeout(resolve, 5));
 					}
 				}
