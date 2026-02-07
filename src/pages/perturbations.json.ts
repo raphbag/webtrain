@@ -1,6 +1,6 @@
 export const prerender = false;
 
-const API_KEY = import.meta.env.IDFM_API_KEY || 'SvPHVJ5fPXkfJPKsu6958pwLCh5Oidhq';
+const API_KEY = import.meta.env.IDFM_API_KEY;
 const LINE_REPORTS_API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/line_reports';
 
 function cleanLineRef(lineRef: string | null): string | null {

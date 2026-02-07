@@ -6,11 +6,40 @@
 const MAX_SCHEDULES_METRO_TRAM = 5; // Nombre d'horaires affichés pour Métro/Tram
 const MAX_SCHEDULES_RAIL = 10; // Nombre d'horaires affichés pour RER/TER/Transilien
 
+interface Schedule {
+	destination: string;
+	aimedTime: string;
+	expectedTime?: string;
+	platform: string;
+	isCancelled: boolean;
+	journeyNote: string | null;
+	vehicleAtStop: boolean;
+}
+
+interface Disruption {
+	disruptionId: string;
+	status: string;
+	severity: string;
+	effect: string;
+	priority: number;
+	color: string;
+	pidsText: string;
+	titleText: string;
+	webText: string;
+	applicationPeriods: ApplicationPeriod[];
+	updatedAt: string;
+}
+
+interface ApplicationPeriod {
+	begin: string;
+	end: string;
+}
+
 /**
  * Extrait le MonitoringRef depuis un MonitoringRef complet
  * Le MonitoringRef est déjà au format STIF:StopArea:SP:xxxxx depuis emplacement-des-gares-idf
  */
-function extractMonitoringRef(monitoringRef) {
+function extractMonitoringRef(monitoringRef: string): string | null {
 	if (!monitoringRef) return null;
 	
 	// Le MonitoringRef est déjà au bon format depuis le dataset
@@ -20,7 +49,7 @@ function extractMonitoringRef(monitoringRef) {
 /**
  * Nettoie un lineRef pour l'API
  */
-function cleanLineRef(lineRef) {
+function cleanLineRef(lineRef: string): string | null {
 	if (!lineRef) return null;
 	
 	let cleaned = lineRef.replace(/^IDFM:/, '');
@@ -33,7 +62,7 @@ function cleanLineRef(lineRef) {
 /**
  * Récupère les horaires en temps réel pour une gare
  */
-export async function fetchStopSchedules(monitoringRef, lineRef, routeType) {
+export async function fetchStopSchedules(monitoringRef: string, lineRef: string, routeType: string): Promise<Schedule[]> {
 	try {
 		const cleanedMonitoringRef = extractMonitoringRef(monitoringRef);
 		const cleanedLineRef = cleanLineRef(lineRef);
@@ -72,8 +101,8 @@ export async function fetchStopSchedules(monitoringRef, lineRef, routeType) {
 /**
  * Parse les données de l'API pour extraire les horaires
  */
-function parseSchedulesData(data) {
-	const schedules = [];
+function parseSchedulesData(data: any): Schedule[] {
+	const schedules: Schedule[] = [];
 	
 	try {
 		const delivery = data?.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0];
@@ -82,7 +111,7 @@ function parseSchedulesData(data) {
 			return schedules;
 		}
 		
-		delivery.MonitoredStopVisit.forEach(visit => {
+		delivery.MonitoredStopVisit.forEach((visit: any) => {
 			const journey = visit.MonitoredVehicleJourney;
 			if (!journey) return;
 			
@@ -125,7 +154,7 @@ function parseSchedulesData(data) {
 		schedules.sort((a, b) => {
 			const timeA = new Date(a.expectedTime || a.aimedTime);
 			const timeB = new Date(b.expectedTime || b.aimedTime);
-			return timeA - timeB;
+			return timeA.getTime() - timeB.getTime();
 		});
 		
 		console.log(`✅ ${schedules.length} horaires parsés et triés`);
@@ -140,7 +169,7 @@ function parseSchedulesData(data) {
 /**
  * Récupère les perturbations pour une ligne et un arrêt spécifique
  */
-export async function fetchLineDisruptions(lineRef, idRefZdA = null, routeType = null) {
+export async function fetchLineDisruptions(lineRef: string, idRefZdA: string | null = null, routeType: string | null = null): Promise<Disruption[]> {
 	try {
 		const cleanedLineRef = cleanLineRef(lineRef);
 		
@@ -182,8 +211,8 @@ export async function fetchLineDisruptions(lineRef, idRefZdA = null, routeType =
 /**
  * Parse les données de perturbations depuis l'API Navitia
  */
-function parseDisruptionsData(data) {
-	const disruptions = [];
+function parseDisruptionsData(data: any): Disruption[] {
+	const disruptions: Disruption[] = [];
 	
 	try {
 		if (!data || !data.disruptions || data.disruptions.length === 0) {
@@ -191,9 +220,9 @@ function parseDisruptionsData(data) {
 		}
 		
 		// Map pour dédupliquer par disruption_id (garder la plus récente)
-		const disruptionsMap = new Map();
+		const disruptionsMap = new Map<string, Disruption>();
 		
-		data.disruptions.forEach(disruption => {
+		data.disruptions.forEach((disruption: any) => {
 			const status = disruption.status || 'unknown';
 			const severity = disruption.severity || {};
 			const messages = disruption.messages || [];
@@ -213,15 +242,15 @@ function parseDisruptionsData(data) {
 			}
 			
 			// Extraire les différents types de messages
-			const pidsMessage = messages.find(msg => 
+			const pidsMessage = messages.find((msg: any) => 
 				msg.channel && msg.channel.types?.includes('pids')
 			);
 			
-			const titleMessage = messages.find(msg => 
+			const titleMessage = messages.find((msg: any) => 
 				msg.channel && msg.channel.types?.includes('title')
 			);
 			
-			const webMessage = messages.find(msg => 
+			const webMessage = messages.find((msg: any) => 
 				msg.channel && msg.channel.types?.includes('web')
 			);
 			
@@ -235,11 +264,11 @@ function parseDisruptionsData(data) {
 			
 			// Vérifier que la perturbation est actuellement active (dans une période d'application)
 			const now = new Date();
-			const isCurrentlyActive = applicationPeriods.some(period => {
+			const isCurrentlyActive = applicationPeriods.some((period: any) => {
 				if (!period.begin || !period.end) return false;
 				
 				// Convertir les dates du format YYYYMMDDTHHMMSS en Date
-				const parseNavitiaDate = (dateStr) => {
+				const parseNavitiaDate = (dateStr: string) => {
 					const year = parseInt(dateStr.substring(0, 4));
 					const month = parseInt(dateStr.substring(4, 6)) - 1; // mois 0-11
 					const day = parseInt(dateStr.substring(6, 8));
@@ -256,7 +285,7 @@ function parseDisruptionsData(data) {
 			});
 			
 			if (status === 'active' && hasApplicationPeriods && isCurrentlyActive) {
-				const disruptionData = {
+				const disruptionData: Disruption = {
 					disruptionId: disruptionId,
 					status: status,
 					severity: severity.name || 'Information',
@@ -323,7 +352,7 @@ function parseDisruptionsData(data) {
 /**
  * Génère un élément DOM pour afficher les perturbations
  */
-function generateDisruptionsElement(disruptions) {
+function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | null {
 	if (!disruptions || disruptions.length === 0) {
 		return null;
 	}
@@ -430,8 +459,8 @@ function generateDisruptionsElement(disruptions) {
 			webDiv.className = 'prose prose-sm max-w-none';
 			
 			// Utiliser setHTML si disponible, sinon innerHTML
-			if (typeof webDiv.setHTML === 'function') {
-				webDiv.setHTML(disruption.webText);
+			if (typeof (webDiv as any).setHTML === 'function') {
+				(webDiv as any).setHTML(disruption.webText);
 			} else {
 				webDiv.innerHTML = disruption.webText;
 			}
@@ -472,7 +501,7 @@ function generateDisruptionsElement(disruptions) {
 /**
  * Génère un élément DOM pour afficher les horaires dans une info-bulle
  */
-export function generateSchedulesElement(schedules, routeType, disruptions = null) {
+export function generateSchedulesElement(schedules: Schedule[], routeType: string, disruptions: Disruption[] | null = null): HTMLElement {
 	// Créer le conteneur principal
 	const container = document.createElement('div');
 	container.className = 'text-[11px]';
@@ -547,13 +576,14 @@ export function generateSchedulesElement(schedules, routeType, disruptions = nul
 		
 		// Utiliser expectedTime si disponible, sinon aimedTime
 		const displayTime = expectedTime || aimedTime;
-		const diffMinutes = Math.round((displayTime - now) / 60000);
+		if (!displayTime) return;
+		const diffMinutes = Math.round((displayTime.getTime() - now.getTime()) / 60000);
 		
 		// Pour RER, TER et Transilien : toujours afficher l'heure originale
 		// Pour Métro et Tram : afficher "X min" basé sur le temps réel (avec retard)
-		let timeStr;
+		let timeStr: string;
 		if (routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') {
-			timeStr = aimedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+			timeStr = aimedTime!.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 		} else {
 			if (diffMinutes < 0) {
 				timeStr = displayTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -588,7 +618,7 @@ export function generateSchedulesElement(schedules, routeType, disruptions = nul
 		// Ajouter le retard en orange si applicable
 		if ((routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') && 
 		    expectedTime && aimedTime && expectedTime > aimedTime) {
-			const delayMinutes = Math.round((expectedTime - aimedTime) / 60000);
+			const delayMinutes = Math.round((expectedTime.getTime() - aimedTime.getTime()) / 60000);
 			if (delayMinutes > 0) {
 				const expectedTimeStr = expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 				const delaySpan = document.createElement('span');
@@ -659,7 +689,7 @@ export function generateSchedulesElement(schedules, routeType, disruptions = nul
 /**
  * Version legacy qui retourne du HTML en string (pour compatibilité)
  */
-export function generateSchedulesHTML(schedules, routeType) {
+export function generateSchedulesHTML(schedules: Schedule[], routeType: string): string {
 	const element = generateSchedulesElement(schedules, routeType);
 	return element.outerHTML;
 }

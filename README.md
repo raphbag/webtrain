@@ -18,24 +18,36 @@ L'application utilise une architecture serveur-client avec Astro en mode SSR (Se
 - `/horaires.json` - Récupération des horaires en temps réel (stop-monitoring)
 - `/perturbations.json` - Récupération des perturbations de ligne
 
-Les clés API sont stockées côté serveur pour plus de sécurité.
 
 Prérequis
 
 - Node.js (18+ recommandé)
 
-Installation et exécution
+Installation
 
 ```bat
 > npm install
-> npm run dev
 ```
 
-Build production
+Build et preview local
 
 ```bat
 > npm run build
 > npm run preview
+```
+
+Build et preview Cloudflare
+
+```bat
+> npx astro build
+> npx wrangler versions upload
+```
+
+Build et production Cloudflare
+
+```bat
+> npx astro build
+> npx wrangler@latest deploy
 ```
 
 ## Variables d'environnement
@@ -43,5 +55,6 @@ Build production
 Créer un fichier `.env` à la racine avec :
 
 ```
+PUBLIC_GOOGLE_MAPS_API_KEY=votre_cle_google_maps
 IDFM_API_KEY=votre_clé_api_idfm
 ```

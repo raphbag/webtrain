@@ -4,14 +4,14 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "webtrain",
+	"name": "webtrain", // Nom du worker Cloudflare
 	"main": "./dist/_worker.js/index.js",
 	"compatibility_date": "2026-02-07",
 	"compatibility_flags": [
 		"nodejs_compat",
 		"global_fetch_strictly_public"
 	],
-	"workers_dev": false,
+	"workers_dev": true,
 	"preview_urls": true,
 	"assets": {
 		"binding": "ASSETS",
