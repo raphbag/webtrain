@@ -52,9 +52,15 @@ Build et production Cloudflare
 
 ## Variables d'environnement
 
-Créer un fichier `.env` à la racine avec :
+Créer un fichier `.env` à la racine pour le développement local avec :
 
 ```
 PUBLIC_GOOGLE_MAPS_API_KEY=votre_cle_google_maps
 IDFM_API_KEY=votre_clé_api_idfm
+```
+
+Pour la production il faut les définir avec :
+```bat
+> wrangler secret put PUBLIC_GOOGLE_MAPS_API_KEY
+> wrangler secret put IDFM_API_KEY
 ```
