@@ -37,11 +37,9 @@ import Layout from '../layouts/Layout.astro';
 		v: "weekly"
 	});
 
-	// URLs des datasets IDFM
-	// Réseau ferré (métro, RER, tramway, train) - tracés précis
-	const FERRE_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/traces-du-reseau-ferre-idf/exports/geojson?limit=-1';
-	// Emplacement des gares IDF (pour les arrêts, images et exploitants)
-	const GARES_URL = 'https://data.iledefrance-mobilites.fr/api/explore/v2.1/catalog/datasets/emplacement-des-gares-idf/exports/geojson?limit=-1';
+	// URLs des endpoints serveur
+	const FERRE_URL = '/lignes.json';
+	const GARES_URL = '/gares.json';
 	
 	// Configuration
 	const REFRESH_INTERVAL_MS = 10000; // Intervalle d'actualisation en millisecondes (10 secondes)

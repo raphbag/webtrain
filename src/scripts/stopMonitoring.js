@@ -1,10 +1,6 @@
 /**
- * Module pour gérer les appels à l'API stop-monitoring de PRIM
+ * Module pour gérer les appels aux endpoints serveur pour les horaires et perturbations
  */
-
-const API_KEY = 'SvPHVJ5fPXkfJPKsu6958pwLCh5Oidhq';
-const API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring';
-const LINE_REPORTS_API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/line_reports';
 
 // Configuration de l'affichage des horaires
 const MAX_SCHEDULES_METRO_TRAM = 5; // Nombre d'horaires affichés pour Métro/Tram
@@ -47,43 +43,20 @@ export async function fetchStopSchedules(monitoringRef, lineRef, routeType) {
 			return [];
 		}
 		
-		const lineRefParam = `STIF:Line::${cleanedLineRef}:`;
-		
-		const url = `${API_URL}?MonitoringRef=${encodeURIComponent(cleanedMonitoringRef)}&LineRef=${encodeURIComponent(lineRefParam)}`;
-		
-		console.log('📍 Récupération horaires API stop-monitoring:');
+		console.log('📍 Récupération horaires depuis le serveur:');
 		console.log('  MonitoringRef (id_ref_zda de la gare):', cleanedMonitoringRef);
 		console.log('  Type de transport:', routeType);
-		console.log('  LineRef (idrefligc de la ligne):', lineRefParam);
+		console.log('  LineRef (idrefligc de la ligne):', cleanedLineRef);
 		
-		const response = await fetch(url, {
-			headers: {
-				'apikey': API_KEY
-			}
-		});
+		let url = `/horaires.json?monitoringRef=${encodeURIComponent(cleanedMonitoringRef)}`;
+		if (cleanedLineRef) {
+			url += `&lineRef=${encodeURIComponent(cleanedLineRef)}`;
+		}
+		
+		const response = await fetch(url);
 		
 		if (!response.ok) {
-			const errorText = await response.text();
-			console.error('❌ API Error:', response.status);
-			console.error('Response:', errorText);
-			
-			// Si erreur, essayer sans le LineRef (parfois ça aide)
-			const urlWithoutLine = `${API_URL}?MonitoringRef=${encodeURIComponent(cleanedMonitoringRef)}`;
-			console.log('🔄 Nouvelle tentative sans LineRef (tous les trains de la gare)');
-			
-			const retryResponse = await fetch(urlWithoutLine, {
-				headers: {
-					'apikey': API_KEY
-				}
-			});
-			
-			if (!retryResponse.ok) {
-				throw new Error(`Erreur API: ${response.status}`);
-			}
-			
-			const data = await retryResponse.json();
-			console.log('✅ Horaires récupérés sans LineRef:', data.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit?.length || 0, 'passages trouvés');
-			return parseSchedulesData(data);
+			throw new Error(`Erreur API: ${response.status}`);
 		}
 		
 		const data = await response.json();
@@ -176,38 +149,22 @@ export async function fetchLineDisruptions(lineRef, idRefZdA = null, routeType =
 			return [];
 		}
 		
-		let url;
+		console.log('📡 Récupération perturbations depuis le serveur');
 		
-		// Pour TER : utiliser uniquement le stop_point (pas de ligne), departures car il y a les disruptions par arret
-		if (routeType === 'TER' && idRefZdA) {
-			const stopPointId = `stop_point:IDFM:monomodalStopPlace:${idRefZdA}`;
-			url = `${LINE_REPORTS_API_URL}/stop_points/${encodeURIComponent(stopPointId)}/departures?count=10`;
-			console.log('📡 Récupération perturbations TER (stop_point seul):', stopPointId);
-		} 
-		// Si idRefZdA est fourni (RER, Transilien), construire l'URL avec ligne + stop_point, departures car il y a les disruptions par arret
-		else if (idRefZdA) {
-			const navitiaLineId = `line:IDFM:${cleanedLineRef}`;
-			const stopPointId = `stop_point:IDFM:monomodalStopPlace:${idRefZdA}`;
-			url = `${LINE_REPORTS_API_URL}/lines/${encodeURIComponent(navitiaLineId)}/stop_points/${encodeURIComponent(stopPointId)}/departures?count=10`;
-			console.log('📡 Récupération perturbations ligne + arrêt:', navitiaLineId, stopPointId);
-		} 
-		// Sinon, utiliser line_reports (Métro, Tram)
-		else {
-			const navitiaLineId = `line:IDFM:${cleanedLineRef}`;
-			url = `${LINE_REPORTS_API_URL}/lines/${encodeURIComponent(navitiaLineId)}/line_reports`;
-			console.log('📡 Récupération perturbations ligne:', navitiaLineId);
+		let url = `/perturbations.json?lineRef=${encodeURIComponent(cleanedLineRef)}`;
+		if (idRefZdA) {
+			url += `&idRefZdA=${encodeURIComponent(idRefZdA)}`;
+		}
+		if (routeType) {
+			url += `&routeType=${encodeURIComponent(routeType)}`;
 		}
 		
 		console.log('📡 URL:', url);
 		
-		const response = await fetch(url, {
-			headers: {
-				'apikey': API_KEY
-			}
-		});
+		const response = await fetch(url);
 		
 		if (!response.ok) {
-			console.warn('Erreur API line_reports:', response.status);
+			console.warn('Erreur API perturbations:', response.status);
 			return [];
 		}
 		
