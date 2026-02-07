@@ -485,7 +485,6 @@ const googleMapsApiKey = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			glyphColor: '#FFFFFF',
 			scale: 0.7
 		});
-		
 		// Ne pas ajouter à la carte initialement
 		const marker = new AdvancedMarkerElement({
 			position,
@@ -496,7 +495,7 @@ const googleMapsApiKey = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		});
 
 		// Info-bulle au clic
-		marker.addListener('click', async () => {
+		marker.addEventListener('gmp-click', async () => {
 			// Fermer l'infoWindow précédente si elle existe
 			if (currentInfoWindow) {
 				currentInfoWindow.close();
