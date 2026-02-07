@@ -1,4 +1,4 @@
-export const prerender = false;
+export const prerender = true;
 
 export async function GET() {
 	try {
@@ -19,7 +19,7 @@ export async function GET() {
 			status: 200,
 			headers: {
 				'Content-Type': 'application/json',
-				'Cache-Control': 'public, max-age=3600'
+				'Cache-Control': 'public, max-age=86400, immutable'
 			}
 		});
 	} catch (error) {
