@@ -26,28 +26,28 @@ Prérequis
 Installation
 
 ```bat
-> npm install
+npm install
 ```
 
 Build et preview local
 
 ```bat
-> npm run build
-> npm run preview
+npm run build
+npm run preview
 ```
 
 Build et preview Cloudflare
 
 ```bat
-> npx astro build
-> npx wrangler versions upload
+npx astro build
+npx wrangler versions upload
 ```
 
 Build et production Cloudflare
 
 ```bat
-> npx astro build
-> npx wrangler@latest deploy
+npx astro build
+npx wrangler@latest deploy
 ```
 
 ## Variables d'environnement
@@ -61,6 +61,6 @@ IDFM_API_KEY=votre_clé_api_idfm
 
 Pour la production il faut les définir avec :
 ```bat
-> wrangler secret put PUBLIC_GOOGLE_MAPS_API_KEY
-> wrangler secret put IDFM_API_KEY
+wrangler secret put PUBLIC_GOOGLE_MAPS_API_KEY
+wrangler secret put IDFM_API_KEY
 ```
