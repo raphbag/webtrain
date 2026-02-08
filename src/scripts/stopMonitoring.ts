@@ -358,10 +358,10 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 	}
 	
 	const container = document.createElement('div');
-	container.className = 'mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-[11px]';
+	container.className = 'mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-xs';
 	
 	const title = document.createElement('h5');
-	title.className = 'm-0 mb-2 text-xs font-semibold text-yellow-800';
+	title.className = 'm-0 mb-2 text-sm font-semibold text-yellow-800';
 	title.textContent = `⚠️ Perturbations (${disruptions.length})`;
 	container.appendChild(title);
 	
@@ -445,7 +445,7 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 		
 		// Détails déroulables
 		const detailsDiv = document.createElement('div');
-		detailsDiv.className = 'mt-2 text-[11px] text-gray-700';
+		detailsDiv.className = 'mt-2 text-xs text-gray-700';
 		detailsDiv.id = detailsId;
 		
 		// Par défaut, toujours masqué (fermé) - sauf si explicitement marqué comme 'expanded' dans sessionStorage
@@ -504,7 +504,7 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 export function generateSchedulesElement(schedules: Schedule[], routeType: string, disruptions: Disruption[] | null = null): HTMLElement {
 	// Créer le conteneur principal
 	const container = document.createElement('div');
-	container.className = 'text-[11px]';
+	container.className = 'text-xs';
 	
 	// Afficher les perturbations en premier si présentes
 	if (disruptions && disruptions.length > 0) {
@@ -516,7 +516,7 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 	
 	if (!schedules || schedules.length === 0) {
 		const noScheduleP = document.createElement('p');
-		noScheduleP.className = 'text-[11px] text-gray-400 mt-2';
+		noScheduleP.className = 'text-xs text-gray-400 mt-2';
 		noScheduleP.textContent = 'Aucun horaire disponible';
 		container.appendChild(noScheduleP);
 		return container;
@@ -530,7 +530,7 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 	
 	// Titre
 	const title = document.createElement('h5');
-	title.className = 'm-0 mb-1.5 text-xs font-semibold';
+	title.className = 'm-0 mb-1.5 text-sm font-semibold';
 	title.textContent = 'Prochains passages';
 	container.appendChild(title);
 	
@@ -542,7 +542,7 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 	
 	// Créer la table
 	const table = document.createElement('table');
-	table.className = 'w-full border-collapse text-[11px]';
+	table.className = 'w-full border-collapse text-xs';
 	
 	// En-tête
 	const thead = document.createElement('thead');
@@ -631,7 +631,7 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 		// Ajouter l'icône train si vehicleAtStop est true
 		if (vehicleAtStop) {
 			const trainIcon = document.createElement('img');
-			trainIcon.src = '/webtrain/train_at_station.svg';
+			trainIcon.src = '/train_at_station.svg';
 			trainIcon.alt = 'Train à quai';
 			trainIcon.className = 'w-3 h-3';
 			trainIcon.title = 'Train à quai';

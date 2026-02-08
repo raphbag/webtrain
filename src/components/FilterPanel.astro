@@ -166,7 +166,7 @@
 				<input type="checkbox" class="category-checkbox mr-3" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}">
 				<span class="category-name flex-1 font-bold text-sm text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)]">${categoryName}</span>
 				<span class="category-count text-xs text-white/80 mr-2 font-semibold bg-white/10 px-2 py-0.5 rounded">${visibleCount}/${routeIds.length}</span>
-				<span class="category-toggle text-base text-white/90 transition-transform duration-300" style="transform: rotate(-90deg);">▼</span>
+				<span class="category-toggle text-base text-white/90 transition-transform duration-300" style="transform: rotate(90deg);">▼</span>
 			`;
 			
 			// Liste des lignes
@@ -280,10 +280,10 @@
 				const toggle = header.querySelector('.category-toggle') as HTMLElement | null;
 				if (header.classList.contains('collapsed')) {
 					linesList.classList.add('hidden');
-					if (toggle) toggle.style.transform = 'rotate(-90deg)';
+					if (toggle) toggle.style.transform = 'rotate(90deg)';
 				} else {
 					linesList.classList.remove('hidden');
-					if (toggle) toggle.style.transform = '';
+					if (toggle) toggle.style.transform = 'rotate(0deg)';
 				}
 			});
 		});

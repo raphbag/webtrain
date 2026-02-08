@@ -72,14 +72,24 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			zoomControl: true,
 			gestureHandling: 'greedy',
 			streetViewControl: true,
-			fullscreenControl: true,
 			mapTypeControl: true,
 			tiltInteractionEnabled: true,
 			colorScheme: ColorScheme.DARK,
 			mapTypeControlOptions: {
-				position: google.maps.ControlPosition.TOP_RIGHT,
+				position: window.innerWidth <= 768 ? google.maps.ControlPosition.BOTTOM_CENTER : google.maps.ControlPosition.TOP_RIGHT,
 				mapTypeIds: ['terrain', 'satellite']
 			},
+		});
+
+		// Gérer les changements de taille d'écran
+		window.addEventListener('resize', () => {
+			const newPosition = window.innerWidth <= 768 ? google.maps.ControlPosition.BOTTOM_CENTER : google.maps.ControlPosition.TOP_RIGHT;
+			map.setOptions({
+				mapTypeControlOptions: {
+					position: newPosition,
+					mapTypeIds: ['terrain', 'satellite']
+				}
+			});
 		});
 		
 		// Stocker les classes pour utilisation ultérieure
@@ -577,7 +587,8 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				content: contentDiv,
 				headerContent: headerDiv,
 				position,
-				zIndex: 10000
+				pixelOffset: new google.maps.Size(0, -20),
+				zIndex: 100
 			});
 			
 			// Stocker l'infoWindow actuelle
