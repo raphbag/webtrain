@@ -90,7 +90,7 @@ export async function fetchStopSchedules(monitoringRef: string, lineRef: string,
 		
 		const data = await response.json();
 		console.log('✅ Horaires récupérés:', data.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit?.length || 0, 'passages trouvés');
-		return parseSchedulesData(data);
+		return parseSchedulesData(data, cleanedLineRef);
 		
 	} catch (error) {
 		console.error('Error in fetchStopSchedules:', error);
@@ -101,7 +101,7 @@ export async function fetchStopSchedules(monitoringRef: string, lineRef: string,
 /**
  * Parse les données de l'API pour extraire les horaires
  */
-function parseSchedulesData(data: any): Schedule[] {
+function parseSchedulesData(data: any, requestedLineRef: string | null = null): Schedule[] {
 	const schedules: Schedule[] = [];
 	
 	try {
@@ -114,6 +114,16 @@ function parseSchedulesData(data: any): Schedule[] {
 		delivery.MonitoredStopVisit.forEach((visit: any) => {
 			const journey = visit.MonitoredVehicleJourney;
 			if (!journey) return;
+			
+			// Filtrer par LineRef pour ne garder que les horaires de la ligne demandée
+			if (requestedLineRef) {
+				const visitLineRef = journey.LineRef?.value || journey.LineRef || '';
+				// Le LineRef de l'API est au format STIF:Line::C01371: 
+				// Le requestedLineRef est au format C01371
+				if (!visitLineRef.includes(requestedLineRef)) {
+					return; // Ignorer cet horaire, il appartient à une autre ligne
+				}
+			}
 			
 			const destinationName = journey.DestinationName?.[0]?.value || 
 			                       journey.DestinationName?.value || 
