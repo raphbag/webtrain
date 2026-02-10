@@ -40,7 +40,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 	
 	// Configuration
 	const REFRESH_INTERVAL_MS = 10000; // Intervalle d'actualisation en millisecondes (10 secondes)
-	const MIN_ZOOM_FOR_STOPS = 15; // Zoom minimum pour afficher les arrêts (15 = très zoomé)
+	const MIN_ZOOM_FOR_STOPS = 14; // Zoom minimum pour afficher les arrêts (15 = très zoomé)
 	
 	let map;
 	let allLines = {}; // Stocker toutes les lignes par route_id
@@ -494,7 +494,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			background: line.routeColor,
 			borderColor: '#FFFFFF',
 			glyphColor: '#FFFFFF',
-			scale: 0.7
+			scale: 0.8
 		});
 		// Ne pas ajouter à la carte initialement
 		const marker = new AdvancedMarkerElement({
