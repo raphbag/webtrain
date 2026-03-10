@@ -40,7 +40,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 	
 	// Configuration
 	const REFRESH_INTERVAL_MS = 10000; // Intervalle d'actualisation en millisecondes (10 secondes)
-	const MIN_ZOOM_FOR_STOPS = 15; // Zoom minimum pour afficher les arrêts (15 = très zoomé)
+	const MIN_ZOOM_FOR_STOPS = 14; // Zoom minimum pour afficher les arrêts (15 = très zoomé)
 	
 	let map;
 	let allLines = {}; // Stocker toutes les lignes par route_id
@@ -494,7 +494,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			background: line.routeColor,
 			borderColor: '#FFFFFF',
 			glyphColor: '#FFFFFF',
-			scale: 0.7
+			scale: 0.8
 		});
 		// Ne pas ajouter à la carte initialement
 		const marker = new AdvancedMarkerElement({
@@ -505,8 +505,14 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			gmpClickable: true
 		});
 
+		marker.stopData = {
+			stopName: properties.stop_name || 'Arrêt',
+			lineName: line.routeName,
+			lineId: line.routeId
+		};
+
 		// Info-bulle au clic
-		marker.addEventListener('gmp-click', async () => {
+		const openStopInfoWindow = async () => {
 			// Fermer l'infoWindow précédente si elle existe
 			if (currentInfoWindow) {
 				currentInfoWindow.close();
@@ -573,7 +579,6 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			}
 			
 			const schedulesContainer = document.createElement('div');
-			schedulesContainer.id = 'schedules-content';
 			schedulesContainer.className = 'mt-3';
 			
 			const loadingText = document.createElement('p');
@@ -610,22 +615,20 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 							window.fetchLineDisruptions(line.originalRouteId, idRefZdA, line.routeType)
 						]);
 						
+						// Vérifier que cette InfoWindow est toujours l'InfoWindow active
+						if (currentInfoWindow !== infoWindow) return;
+						
 						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType, disruptions);
-						const container = document.getElementById('schedules-content');
-						if (container) {
-							container.innerHTML = '';
-							container.appendChild(schedulesElement);
-						}
+						schedulesContainer.innerHTML = '';
+						schedulesContainer.appendChild(schedulesElement);
 					} catch (error) {
 						console.error('Erreur chargement horaires:', error);
-						const container = document.getElementById('schedules-content');
-						if (container) {
-							container.innerHTML = '';
-							const errorText = document.createElement('p');
-							errorText.className = 'text-[11px] text-gray-400';
-							errorText.textContent = 'Erreur de chargement';
-							container.appendChild(errorText);
-						}
+						if (currentInfoWindow !== infoWindow) return;
+						schedulesContainer.innerHTML = '';
+						const errorText = document.createElement('p');
+						errorText.className = 'text-[11px] text-gray-400';
+						errorText.textContent = 'Erreur de chargement';
+						schedulesContainer.appendChild(errorText);
 					}
 				}
 			};
@@ -652,7 +655,10 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 					}
 				});
 			});
-		});
+		};
+
+		marker.addEventListener('gmp-click', openStopInfoWindow);
+		marker.openInfoWindow = openStopInfoWindow;
 
 		return marker;
 	}
