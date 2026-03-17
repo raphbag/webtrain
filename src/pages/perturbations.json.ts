@@ -1,5 +1,7 @@
 export const prerender = false;
 
+import { env } from "cloudflare:workers";
+
 const LINE_REPORTS_API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/v2/navitia/line_reports';
 
 function cleanLineRef(lineRef: string | null): string | null {
@@ -14,7 +16,7 @@ function cleanLineRef(lineRef: string | null): string | null {
 
 export async function GET({ url, locals }: { url: URL; locals: any }) {
 	try {
-		const API_KEY = import.meta.env.IDFM_API_KEY;
+		const API_KEY = env.IDFM_API_KEY;
 		const lineRef = url.searchParams.get('lineRef');
 		const idRefZdA = url.searchParams.get('idRefZdA');
 		const routeType = url.searchParams.get('routeType');

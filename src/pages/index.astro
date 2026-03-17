@@ -1,8 +1,8 @@
 ﻿---
 import FilterPanel from '../components/FilterPanel.astro';
 import Layout from '../layouts/Layout.astro';
-
-const googleMapsApiKey = import.meta.env.PUBLIC_GOOGLE_MAPS_API_KEY;
+import { env } from "cloudflare:workers";
+const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 ---
 
 <script>

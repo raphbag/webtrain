@@ -1,5 +1,7 @@
 export const prerender = false;
 
+import { env } from "cloudflare:workers";
+
 const API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring';
 
 function extractMonitoringRef(monitoringRef: string | null): string | null {
@@ -19,7 +21,7 @@ function cleanLineRef(lineRef: string | null): string | null {
 
 export async function GET({ url, locals }: { url: URL; locals: any }) {
 	try {
-		const API_KEY = import.meta.env.IDFM_API_KEY;
+		const API_KEY = env.IDFM_API_KEY;
 		const monitoringRef = url.searchParams.get('monitoringRef');
 		const lineRef = url.searchParams.get('lineRef');
 		
