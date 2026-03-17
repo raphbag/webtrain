@@ -5,7 +5,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "webtrain", // Nom du worker Cloudflare
-	"main": "./dist/_worker.js/index.js",
 	"compatibility_date": "2026-02-07",
 	"compatibility_flags": [
 		"nodejs_compat",

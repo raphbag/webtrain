@@ -19,8 +19,7 @@ function cleanLineRef(lineRef: string | null): string | null {
 
 export async function GET({ url, locals }: { url: URL; locals: any }) {
 	try {
-		const { env } = locals.runtime;
-		const API_KEY = env.IDFM_API_KEY;
+		const API_KEY = import.meta.env.IDFM_API_KEY;
 		const monitoringRef = url.searchParams.get('monitoringRef');
 		const lineRef = url.searchParams.get('lineRef');
 		
