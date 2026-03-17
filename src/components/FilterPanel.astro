@@ -345,10 +345,10 @@
 				// Utiliser l'image si disponible, sinon l'indicateur de couleur
 				let lineVisual = '';
 				if (line.imageUrl) {
-					lineVisual = `<img src="${line.imageUrl}" alt="${line.routeName}" class="h-7 max-w-xs object-contain mr-2 flex-shrink-0 drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
-					              <div class="rounded flex-shrink-0 shadow-sm hidden" style="width: 1.375rem; height: 1.375rem; background-color: ${line.routeColor}; display: none;"></div>`;
+					lineVisual = `<img src="${line.imageUrl}" alt="${line.routeName}" class="h-7 max-w-xs object-contain mr-2 shrink-0 drop-shadow-[0_2px_4px_rgba(0,0,0,0.2)]" loading="lazy" onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+					              <div class="rounded shrink-0 shadow-sm hidden" style="width: 1.375rem; height: 1.375rem; background-color: ${line.routeColor}; display: none;"></div>`;
 				} else {
-					lineVisual = `<div class="rounded flex-shrink-0 shadow-sm" style="width: 1.375rem; height: 1.375rem; background-color: ${line.routeColor};"></div>`;
+					lineVisual = `<div class="rounded shrink-0 shadow-sm" style="width: 1.375rem; height: 1.375rem; background-color: ${line.routeColor};"></div>`;
 				}
 				
 				lineItem.innerHTML = `

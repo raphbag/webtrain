@@ -88,7 +88,7 @@ export async function fetchStopSchedules(monitoringRef: string, lineRef: string,
 			throw new Error(`Erreur API: ${response.status}`);
 		}
 		
-		const data = await response.json();
+		const data = (await response.json()) as any;
 		console.log('✅ Horaires récupérés:', data.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit?.length || 0, 'passages trouvés');
 		return parseSchedulesData(data, cleanedLineRef);
 		
@@ -207,7 +207,7 @@ export async function fetchLineDisruptions(lineRef: string, idRefZdA: string | n
 			return [];
 		}
 		
-		const data = await response.json();
+		const data = (await response.json()) as any;
 		console.log('✅ Perturbations récupérées:', data);
 		
 		return parseDisruptionsData(data);
@@ -390,7 +390,7 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 		
 		// Flèche pour indiquer l'état déroulé/enroulé
 		const arrowSpan = document.createElement('span');
-		arrowSpan.className = 'flex-shrink-0 transition-transform inline-flex items-center';
+		arrowSpan.className = 'shrink-0 transition-transform inline-flex items-center';
 		arrowSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
 		arrowSpan.id = `arrow-${disruption.disruptionId || index}`;
 		
@@ -438,7 +438,7 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 		
 		// Date de mise à jour à droite
 		const dateSpan = document.createElement('span');
-		dateSpan.className = 'text-[10px] text-gray-500 flex-shrink-0';
+		dateSpan.className = 'text-[10px] text-gray-500 shrink-0';
 		if (disruption.updatedAt) {
 			// Format: YYYYMMDDTHHMMSS -> convertir en date lisible
 			const dateStr = disruption.updatedAt;

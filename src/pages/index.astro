@@ -546,7 +546,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				const lineImage = document.createElement('img');
 				lineImage.src = line.imageUrl;
 				lineImage.alt = line.routeName;
-				lineImage.className = 'w-8 h-8 object-contain flex-shrink-0 my-auto';
+				lineImage.className = 'w-8 h-8 object-contain shrink-0 my-auto';
 				lineImage.onerror = function() {
 					this.style.display = 'none'; // Cacher si l'image ne charge pas
 				};

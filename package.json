@@ -14,12 +14,12 @@
     "@astrojs/cloudflare": "^13.1.2",
     "@astrojs/node": "^10.0.2",
     "@googlemaps/markerclusterer": "^2.6.2",
-    "@tailwindcss/vite": "^4.1.18",
+    "@tailwindcss/vite": "^4.2.1",
     "@types/node": "^25.5.0",
     "astro": "^6.0.5",
-    "tailwindcss": "^4.1.18"
+    "tailwindcss": "^4.2.1"
   },
   "devDependencies": {
-    "wrangler": "^4.63.0"
+    "wrangler": "^4.75.0"
   }
 }
