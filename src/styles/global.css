@@ -1,2 +1,30 @@
 @import url('https://fonts.googleapis.com/css2?family=Rubik:ital,wght@0,300..900;1,300..900&display=swap');
 @import "tailwindcss";
+
+.gm-style .gm-style-iw-c {
+    padding: 0 !important;
+}
+
+.gm-style-iw-d {
+    overflow: auto !important;
+    max-height: min(70vh, 520px) !important;
+}
+
+@media (max-width: 640px) {
+    .gm-style .gm-style-iw-c {
+        width: calc(100vw - 16px) !important;
+        max-width: calc(100vw - 16px) !important;
+        box-sizing: border-box;
+    }
+
+    .gm-style .gm-style-iw-d {
+        max-width: calc(100vw - 16px) !important;
+    }
+
+    .gm-style .schedule-info-window {
+        width: calc(100vw - 16px) !important;
+        max-width: calc(100vw - 16px) !important;
+        min-width: 0 !important;
+        margin: 0 !important;
+    }
+}

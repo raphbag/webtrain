@@ -10,6 +10,8 @@ declare namespace Cloudflare {
 	interface Env {
 		ASSETS: Fetcher;
 		IDFM_API_KEY: string;
+		SNCF_API_USERNAME: string;
+		SNCF_API_PASSWORD: string;
 		PUBLIC_GOOGLE_MAPS_API_KEY: string;
 	}
 }
@@ -23,6 +25,8 @@ interface ImportMetaEnv {
 	
 	// Clés API privées (accessibles uniquement côté serveur)
 	readonly IDFM_API_KEY: string;
+	readonly SNCF_API_USERNAME: string;
+	readonly SNCF_API_PASSWORD: string;
 }
 
 interface ImportMeta {

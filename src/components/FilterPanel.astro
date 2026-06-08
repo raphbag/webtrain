@@ -10,7 +10,7 @@
 	<div id="filterContent" class="overflow-y-auto flex-1 p-4 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-lg [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb]:rounded-lg [&::-webkit-scrollbar-thumb:hover]:bg-white/40">
 		<div class="mb-4">
 			<label for="stopSearchInput" class="block text-xs font-semibold text-white/90 mb-2">Rechercher un arrêt</label>
-			<input id="stopSearchInput" type="search" placeholder="Ex: Châtelet" class="w-full rounded-lg border border-white/25 bg-white/10 text-white placeholder:text-white/60 px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-white/50 focus:bg-white/15" autocomplete="off" />
+			<input id="stopSearchInput" type="search" placeholder="Ex : Châtelet" class="w-full rounded-lg border border-white/25 bg-white/10 text-white placeholder:text-white/60 px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-white/50 focus:bg-white/15" autocomplete="off" />
 			<p id="stopSearchStatus" class="mt-2 text-[11px] text-white/70" aria-live="polite"></p>
 			<div id="stopSearchResults" class="mt-2 max-h-48 overflow-y-auto hidden rounded-lg border border-white/15 bg-white/5 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-white/5 [&::-webkit-scrollbar-track]:rounded-lg [&::-webkit-scrollbar-thumb]:bg-white/30 [&::-webkit-scrollbar-thumb]:rounded-lg"></div>
 		</div>
@@ -250,7 +250,7 @@
 		container.innerHTML = '';
 		
 		// Ordre des catégories souhaité (Autres à la fin pour les lignes non classées)
-		const categoryOrder = ['Métro', 'RER', 'Transilien', 'TER', 'Tram', 'Autres'];
+		const categoryOrder = ['Métro', 'RER', 'Transilien', 'Grandes lignes', 'Tram', 'Autres'];
 		const sortedCategories = categoryOrder.filter(cat => categories[cat]);
 		
 		// Ajouter les catégories non listées dans l'ordre (au cas où)

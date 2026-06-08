@@ -2,18 +2,26 @@
  * Module pour gérer les appels aux endpoints serveur pour les horaires et perturbations
  */
 
+declare global {
+	interface Window {
+		showToast?: (message: string, type?: string) => void;
+	}
+}
+
 // Configuration de l'affichage des horaires
 const MAX_SCHEDULES_METRO_TRAM = 5; // Nombre d'horaires affichés pour Métro/Tram
-const MAX_SCHEDULES_RAIL = 10; // Nombre d'horaires affichés pour RER/TER/Transilien
+const MAX_SCHEDULES_RAIL = 10; // Nombre d'horaires affichés pour RER/Grandes lignes/Transilien
 
 interface Schedule {
-	destination: string;
+	destination?: string;
+	origin?: string;
 	aimedTime: string;
 	expectedTime?: string;
 	platform: string;
 	isCancelled: boolean;
 	journeyNote: string | null;
 	vehicleAtStop: boolean;
+	type?: 'departure' | 'arrival';
 }
 
 interface Disruption {
@@ -62,7 +70,7 @@ function cleanLineRef(lineRef: string): string | null {
 /**
  * Récupère les horaires en temps réel pour une gare
  */
-export async function fetchStopSchedules(monitoringRef: string, lineRef: string, routeType: string): Promise<Schedule[]> {
+export async function fetchStopSchedules(monitoringRef: string, lineRef: string, routeType: string, stopName: string | null = null, routeName: string | null = null, dataSource: string = 'idfm', stopCodeUic: string | null = null): Promise<Schedule[]> {
 	try {
 		const cleanedMonitoringRef = extractMonitoringRef(monitoringRef);
 		const cleanedLineRef = cleanLineRef(lineRef);
@@ -76,10 +84,20 @@ export async function fetchStopSchedules(monitoringRef: string, lineRef: string,
 		console.log('  MonitoringRef (id_ref_zda de la gare):', cleanedMonitoringRef);
 		console.log('  Type de transport:', routeType);
 		console.log('  LineRef (idrefligc de la ligne):', cleanedLineRef);
+		console.log('  Source de données:', dataSource);
 		
-		let url = `/horaires.json?monitoringRef=${encodeURIComponent(cleanedMonitoringRef)}`;
+		let url = `/api/${dataSource}/horaires.json?monitoringRef=${encodeURIComponent(cleanedMonitoringRef)}`;
 		if (cleanedLineRef) {
-			url += `&lineRef=${encodeURIComponent(cleanedLineRef)}`;
+			url += `&lineRef=${encodeURIComponent(cleanedLineRef)}&lineCode=${encodeURIComponent(cleanedLineRef)}`;
+		}
+		if (stopCodeUic) {
+			url += `&stopCodeUic=${encodeURIComponent(stopCodeUic)}`;
+		}
+		if (stopName) {
+			url += `&stopName=${encodeURIComponent(stopName)}`;
+		}
+		if (routeName) {
+			url += `&lineName=${encodeURIComponent(routeName)}`;
 		}
 		
 		const response = await fetch(url);
@@ -89,11 +107,21 @@ export async function fetchStopSchedules(monitoringRef: string, lineRef: string,
 		}
 		
 		const data = (await response.json()) as any;
+		
+		// Si la source est SNCF, les données sont déjà formatées et parsées par l'API Route
+		if (dataSource === 'sncf' && data.schedules) {
+			console.log('✅ Horaires récupérés (SNCF):', data.schedules.length, 'passages trouvés');
+			return data.schedules;
+		}
+		
 		console.log('✅ Horaires récupérés:', data.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit?.length || 0, 'passages trouvés');
 		return parseSchedulesData(data, cleanedLineRef);
 		
 	} catch (error) {
 		console.error('Error in fetchStopSchedules:', error);
+		if (typeof window !== 'undefined' && window.showToast) {
+			window.showToast('Impossible de récupérer les horaires.', 'error');
+		}
 		return [];
 	}
 }
@@ -155,7 +183,8 @@ function parseSchedulesData(data: any, requestedLineRef: string | null = null): 
 					platform: platform,
 					isCancelled: isCancelled,
 					journeyNote: journeyNote,
-					vehicleAtStop: vehicleAtStop
+					vehicleAtStop: vehicleAtStop,
+					type: 'departure' // Par défaut IDFM c'est presque toujours des départs
 				});
 			}
 		});
@@ -179,7 +208,7 @@ function parseSchedulesData(data: any, requestedLineRef: string | null = null): 
 /**
  * Récupère les perturbations pour une ligne et un arrêt spécifique
  */
-export async function fetchLineDisruptions(lineRef: string, idRefZdA: string | null = null, routeType: string | null = null): Promise<Disruption[]> {
+export async function fetchLineDisruptions(lineRef: string, idRefZdA: string | null = null, routeType: string | null = null, dataSource: string = 'idfm', routeName: string | null = null): Promise<Disruption[]> {
 	try {
 		const cleanedLineRef = cleanLineRef(lineRef);
 		
@@ -190,12 +219,15 @@ export async function fetchLineDisruptions(lineRef: string, idRefZdA: string | n
 		
 		console.log('📡 Récupération perturbations depuis le serveur');
 		
-		let url = `/perturbations.json?lineRef=${encodeURIComponent(cleanedLineRef)}`;
+		let url = `/api/${dataSource}/perturbations.json?lineRef=${encodeURIComponent(cleanedLineRef)}`;
 		if (idRefZdA) {
 			url += `&idRefZdA=${encodeURIComponent(idRefZdA)}`;
 		}
 		if (routeType) {
 			url += `&routeType=${encodeURIComponent(routeType)}`;
+		}
+		if (routeName) {
+			url += `&lineName=${encodeURIComponent(routeName)}`;
 		}
 		
 		console.log('📡 URL:', url);
@@ -214,6 +246,9 @@ export async function fetchLineDisruptions(lineRef: string, idRefZdA: string | n
 		
 	} catch (error) {
 		console.error('Error in fetchLineDisruptions:', error);
+		if (typeof window !== 'undefined' && window.showToast) {
+			window.showToast('Impossible de récupérer les perturbations.', 'error');
+		}
 		return [];
 	}
 }
@@ -368,35 +403,38 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 	}
 	
 	const container = document.createElement('div');
-	container.className = 'mt-3 p-2 bg-yellow-50 border border-yellow-300 rounded text-xs';
+	container.className = 'mt-1 rounded-xl border border-orange-300/50 bg-orange-100/80 p-2 text-xs shadow-sm';
 	
 	const title = document.createElement('h5');
-	title.className = 'm-0 mb-2 text-sm font-semibold text-yellow-800';
+	title.className = 'm-0 mb-2 flex items-center gap-1 text-sm font-semibold tracking-tight text-amber-900';
 	title.textContent = `⚠️ Perturbations (${disruptions.length})`;
 	container.appendChild(title);
 	
-	disruptions.forEach((disruption, index) => {
+	disruptions.forEach((disruption) => {
 		const disruptionDiv = document.createElement('div');
-		disruptionDiv.className = 'mb-2 pb-2 border-b border-gray-200 last:border-b-0 last:mb-0 last:pb-0';
+		disruptionDiv.className = 'mb-2 rounded-lg border border-orange-200/80 bg-white/80 shadow-[0_1px_2px_rgba(0,0,0,0.06)] last:mb-0';
 		
-		// Container pour le header (PIDS + Titre avec couleur + date)
+		// Container pour le header (PIDS + Titre avec couleur)
 		const headerDiv = document.createElement('div');
-		headerDiv.className = 'flex justify-between items-start gap-2 cursor-pointer hover:opacity-80 transition-opacity';
+		headerDiv.className = 'flex items-start gap-2 rounded-md p-1.5 transition-colors hover:bg-amber-50 cursor-pointer';
 		headerDiv.style.color = disruption.color || '#000000';
 		
 		// Partie gauche : Flèche + PIDS (gras) + Titre
 		const leftDiv = document.createElement('div');
-		leftDiv.className = 'flex-1 flex items-start gap-1';
+		leftDiv.className = 'flex flex-1 items-start gap-1.5';
 		
+		const disruptionStateKey = disruption.disruptionId
+			? `id-${disruption.disruptionId}`
+			: `content-${(disruption.pidsText || '').trim().toLowerCase()}|${(disruption.titleText || '').trim().toLowerCase()}`;
+
 		// Flèche pour indiquer l'état déroulé/enroulé
 		const arrowSpan = document.createElement('span');
 		arrowSpan.className = 'shrink-0 transition-transform inline-flex items-center';
 		arrowSpan.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
-		arrowSpan.id = `arrow-${disruption.disruptionId || index}`;
 		
 		// Vérifier si cette perturbation doit être déroulée (état persistant dans cette session d'infobulle)
 		// Utiliser une clé spécifique qui sera nettoyée à la fermeture de l'infobulle
-		const detailsId = `disruption-details-${disruption.disruptionId || index}`;
+		const detailsId = `disruption-details-${disruptionStateKey}`;
 		
 		// Récupérer l'état depuis sessionStorage - par défaut fermé si pas de valeur
 		const savedState = sessionStorage.getItem(detailsId);
@@ -411,6 +449,7 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 		
 		// Conteneur pour le texte (PIDS + Titre)
 		const textDiv = document.createElement('div');
+		textDiv.className = 'font-normal';
 		
 		// PIDS en gras
 		if (disruption.pidsText) {
@@ -436,37 +475,34 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 		
 		leftDiv.appendChild(textDiv);
 		
-		// Date de mise à jour à droite
-		const dateSpan = document.createElement('span');
-		dateSpan.className = 'text-[10px] text-gray-500 shrink-0';
+		headerDiv.appendChild(leftDiv);
+		
+		// Détails déroulables
+		const detailsDiv = document.createElement('div');
+		detailsDiv.className = 'overflow-hidden border-t border-amber-200/80 text-xs text-slate-700 transition-[max-height,opacity] duration-300 ease-in-out';
+		detailsDiv.id = detailsId;
+		detailsDiv.style.maxHeight = '0px';
+		detailsDiv.style.opacity = '0';
+		detailsDiv.dataset.expanded = 'false';
+
 		if (disruption.updatedAt) {
-			// Format: YYYYMMDDTHHMMSS -> convertir en date lisible
 			const dateStr = disruption.updatedAt;
 			const year = dateStr.substring(0, 4);
 			const month = dateStr.substring(4, 6);
 			const day = dateStr.substring(6, 8);
 			const hour = dateStr.substring(9, 11);
 			const minute = dateStr.substring(11, 13);
-			dateSpan.textContent = `${day}/${month}/${year} ${hour}:${minute}`;
-		}
-		
-		headerDiv.appendChild(leftDiv);
-		headerDiv.appendChild(dateSpan);
-		
-		// Détails déroulables
-		const detailsDiv = document.createElement('div');
-		detailsDiv.className = 'mt-2 text-xs text-gray-700';
-		detailsDiv.id = detailsId;
-		
-		// Par défaut, toujours masqué (fermé) - sauf si explicitement marqué comme 'expanded' dans sessionStorage
-		if (!wasExpanded) {
-			detailsDiv.classList.add('hidden');
+
+			const updatedAtDiv = document.createElement('div');
+			updatedAtDiv.className = 'text-[10px] font-medium text-slate-500 m-2';
+			updatedAtDiv.textContent = `Dernière mise à jour : ${day}/${month}/${year} ${hour}:${minute}`;
+			detailsDiv.appendChild(updatedAtDiv);
 		}
 		
 		// Message web en HTML (si disponible)
 		if (disruption.webText) {
 			const webDiv = document.createElement('div');
-			webDiv.className = 'prose prose-sm max-w-none';
+			webDiv.className = ' m-2 prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0.5 prose-a:text-blue-700 prose-a:no-underline hover:prose-a:underline';
 			
 			// Utiliser setHTML si disponible, sinon innerHTML
 			if (typeof (webDiv as any).setHTML === 'function') {
@@ -477,27 +513,41 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 			
 			detailsDiv.appendChild(webDiv);
 		}
+
+		if (wasExpanded) {
+			detailsDiv.dataset.expanded = 'true';
+			detailsDiv.style.opacity = '1';
+			detailsDiv.style.maxHeight = 'none';
+			arrowSpan.style.transform = 'rotate(90deg)';
+		}
 		
+		const setDetailsExpanded = (expanded: boolean, persistState = true) => {
+			if (expanded) {
+				detailsDiv.dataset.expanded = 'true';
+				detailsDiv.style.opacity = '1';
+				detailsDiv.style.maxHeight = `${detailsDiv.scrollHeight}px`;
+				arrowSpan.style.transform = 'rotate(90deg)';
+				if (persistState) {
+					sessionStorage.setItem(detailsId, 'expanded');
+				}
+			} else {
+				detailsDiv.dataset.expanded = 'false';
+				detailsDiv.style.maxHeight = `${detailsDiv.scrollHeight}px`;
+				requestAnimationFrame(() => {
+					detailsDiv.style.opacity = '0';
+					detailsDiv.style.maxHeight = '0px';
+				});
+				arrowSpan.style.transform = 'rotate(0deg)';
+				if (persistState) {
+					sessionStorage.setItem(detailsId, 'collapsed');
+				}
+			}
+		};
+
 		// Événement de clic pour dérouler/enrouler
 		headerDiv.addEventListener('click', () => {
-			const isHidden = detailsDiv.classList.contains('hidden');
-			const arrow = document.getElementById(`arrow-${disruption.disruptionId || index}`);
-			
-			if (isHidden) {
-				detailsDiv.classList.remove('hidden');
-				if (arrow) {
-					arrow.style.transform = 'rotate(90deg)';
-				}
-				// Sauvegarder l'état comme déroulé
-				sessionStorage.setItem(detailsId, 'expanded');
-			} else {
-				detailsDiv.classList.add('hidden');
-				if (arrow) {
-					arrow.style.transform = 'rotate(0deg)';
-				}
-				// Sauvegarder l'état comme enroulé
-				sessionStorage.setItem(detailsId, 'collapsed');
-			}
+			const isExpanded = detailsDiv.dataset.expanded === 'true';
+			setDetailsExpanded(!isExpanded);
 		});
 		
 		disruptionDiv.appendChild(headerDiv);
@@ -511,61 +561,39 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 /**
  * Génère un élément DOM pour afficher les horaires dans une info-bulle
  */
-export function generateSchedulesElement(schedules: Schedule[], routeType: string, disruptions: Disruption[] | null = null): HTMLElement {
-	// Créer le conteneur principal
-	const container = document.createElement('div');
-	container.className = 'text-xs';
-	
-	// Afficher les perturbations en premier si présentes
-	if (disruptions && disruptions.length > 0) {
-		const disruptionsElement = generateDisruptionsElement(disruptions);
-		if (disruptionsElement) {
-			container.appendChild(disruptionsElement);
-		}
-	}
-	
-	if (!schedules || schedules.length === 0) {
-		const noScheduleP = document.createElement('p');
-		noScheduleP.className = 'text-xs text-gray-400 mt-2';
-		noScheduleP.textContent = 'Aucun horaire disponible';
-		container.appendChild(noScheduleP);
-		return container;
-	}
-	
-	// Déterminer si on affiche la colonne voie (uniquement pour RER, TER, Transilien)
-	const showPlatform = routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien';
-	
-	// Déterminer le nombre d'horaires à afficher selon le type de transport
-	const maxSchedules = showPlatform ? MAX_SCHEDULES_RAIL : MAX_SCHEDULES_METRO_TRAM;
-	
-	// Titre
-	const title = document.createElement('h5');
-	title.className = 'm-0 mb-1.5 text-sm font-semibold';
-	title.textContent = 'Prochains passages';
-	container.appendChild(title);
-	
-	// Conteneur avec scroll si nécessaire
+function createSchedulesTable(schedules: Schedule[], maxSchedules: number, showPlatform: boolean, routeType: string, tableType: 'departure' | 'arrival'): HTMLElement {
 	const tableWrapper = document.createElement('div');
+	tableWrapper.className = 'overflow-hidden rounded-xl border border-slate-200 bg-white/95 shadow-[0_1px_2px_rgba(0,0,0,0.06)]';
 	if (showPlatform) {
-		tableWrapper.className = 'max-h-[300px] overflow-y-auto';
+		tableWrapper.className += ' max-h-[300px] overflow-y-auto';
 	}
 	
-	// Créer la table
-	const table = document.createElement('table');
-	table.className = 'w-full border-collapse text-xs';
+	if (schedules.length === 0) {
+		const noData = document.createElement('div');
+		noData.className = 'p-3 text-center text-xs text-slate-500';
+		noData.textContent = `Aucun ${tableType === 'departure' ? 'départ' : 'arrivée'} prévu`;
+		tableWrapper.appendChild(noData);
+		return tableWrapper;
+	}
 	
-	// En-tête
+	const table = document.createElement('table');
+	table.className = 'w-full border-separate border-spacing-0 text-xs';
+	
 	const thead = document.createElement('thead');
 	const headerRow = document.createElement('tr');
-	headerRow.className = 'border-b border-gray-300';
+	headerRow.className = 'bg-slate-100/90';
 	
-	const headers = ['Heure', 'Direction'];
+	const destOrOrigin = tableType === 'departure' ? 'Direction' : 'Provenance';
+	const headers = ['Heure', destOrOrigin];
 	if (showPlatform) headers.push('Voie');
 	
 	headers.forEach((text, index) => {
 		const th = document.createElement('th');
-		th.className = 'text-left p-1 font-semibold';
-		if (index === 2) th.className = 'text-center p-1 font-semibold';
+		th.className = 'border-b border-slate-200 px-2 py-1.5 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-600';
+		if (showPlatform) {
+			th.className += ' sticky top-0 bg-slate-100/95';
+		}
+		if (index === 2) th.className = th.className.replace('text-left', 'text-center');
 		th.textContent = text;
 		headerRow.appendChild(th);
 	});
@@ -573,7 +601,6 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 	thead.appendChild(headerRow);
 	table.appendChild(thead);
 	
-	// Corps du tableau
 	const tbody = document.createElement('tbody');
 	
 	schedules.slice(0, maxSchedules).forEach(schedule => {
@@ -583,16 +610,14 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 		const isCancelled = schedule.isCancelled || false;
 		const journeyNote = schedule.journeyNote || null;
 		const vehicleAtStop = schedule.vehicleAtStop || false;
+		const isDelayed = Boolean(expectedTime && aimedTime && expectedTime > aimedTime);
 		
-		// Utiliser expectedTime si disponible, sinon aimedTime
 		const displayTime = expectedTime || aimedTime;
 		if (!displayTime) return;
 		const diffMinutes = Math.round((displayTime.getTime() - now.getTime()) / 60000);
 		
-		// Pour RER, TER et Transilien : toujours afficher l'heure originale
-		// Pour Métro et Tram : afficher "X min" basé sur le temps réel (avec retard)
 		let timeStr: string;
-		if (routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') {
+		if (routeType === 'RER' || routeType === 'Grandes lignes' || routeType === 'Transilien') {
 			timeStr = aimedTime!.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 		} else {
 			if (diffMinutes < 0) {
@@ -604,72 +629,62 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 			}
 		}
 		
-		// Créer la ligne
 		const tr = document.createElement('tr');
-		tr.className = 'border-b border-gray-100';
+		tr.className = 'transition-colors odd:bg-white even:bg-slate-50/60 hover:bg-slate-100/80';
 		if (isCancelled) {
-			tr.className += ' line-through text-red-600';
+			tr.className += ' text-red-600';
 		}
 		
-		// Colonne heure
 		const tdTime = document.createElement('td');
-		tdTime.className = 'p-1 whitespace-nowrap';
+		tdTime.className = 'whitespace-nowrap px-2 py-1.5';
 		if (isCancelled) tdTime.className += ' line-through text-red-600';
 		
-		// Créer un conteneur flex pour tout mettre sur une ligne
 		const timeContainer = document.createElement('div');
 		timeContainer.className = 'flex items-center gap-1';
 		
-		// Ajouter l'heure
 		const timeSpan = document.createElement('span');
+		timeSpan.className = 'font-medium tabular-nums';
+		if (isDelayed) timeSpan.className += ' line-through text-slate-500';
 		timeSpan.textContent = timeStr;
 		timeContainer.appendChild(timeSpan);
 		
-		// Ajouter le retard en orange si applicable
-		if ((routeType === 'RER' || routeType === 'TER' || routeType === 'Transilien') && 
-		    expectedTime && aimedTime && expectedTime > aimedTime) {
+		if ((routeType === 'RER' || routeType === 'Grandes lignes' || routeType === 'Transilien') && isDelayed && expectedTime && aimedTime) {
 			const delayMinutes = Math.round((expectedTime.getTime() - aimedTime.getTime()) / 60000);
 			if (delayMinutes > 0) {
 				const expectedTimeStr = expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 				const delaySpan = document.createElement('span');
-				delaySpan.className = 'text-orange-500 font-semibold';
+				delaySpan.className = 'rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700';
 				delaySpan.textContent = expectedTimeStr;
 				timeContainer.appendChild(delaySpan);
 			}
 		}
 		
-		// Ajouter l'icône train si vehicleAtStop est true
 		if (vehicleAtStop) {
 			const trainIcon = document.createElement('img');
 			trainIcon.src = '/train_at_station.svg';
 			trainIcon.alt = 'Train à quai';
-			trainIcon.className = 'w-3 h-3';
+			trainIcon.className = 'h-3.5 w-3.5';
 			trainIcon.title = 'Train à quai';
 			timeContainer.appendChild(trainIcon);
 		}
 		
 		tdTime.appendChild(timeContainer);
-		
 		tr.appendChild(tdTime);
 		
-		// Colonne destination
 		const tdDest = document.createElement('td');
-		tdDest.className = 'p-1';
+		tdDest.className = 'px-2 py-1.5';
 		if (isCancelled) tdDest.className += ' line-through text-red-600';
 		
-		// Créer un conteneur flex pour destination + note
 		const destContainer = document.createElement('div');
 		destContainer.className = 'flex items-center gap-2';
 		
-		// Destination
 		const destSpan = document.createElement('span');
-		destSpan.textContent = schedule.destination;
+		destSpan.textContent = tableType === 'departure' ? (schedule.destination || 'Inconnu') : (schedule.origin || 'Inconnu');
 		destContainer.appendChild(destSpan);
 		
-		// Ajouter le JourneyNote si présent
 		if (journeyNote) {
 			const noteSpan = document.createElement('span');
-			noteSpan.className = 'text-[10px] text-blue-600 italic';
+			noteSpan.className = 'rounded-md bg-blue-50 px-1.5 py-0.5 text-[10px] italic text-blue-700';
 			noteSpan.textContent = `${journeyNote}`;
 			destContainer.appendChild(noteSpan);
 		}
@@ -677,10 +692,9 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 		tdDest.appendChild(destContainer);
 		tr.appendChild(tdDest);
 		
-		// Colonne voie (si applicable)
 		if (showPlatform) {
 			const tdPlatform = document.createElement('td');
-			tdPlatform.className = 'p-1 text-center';
+			tdPlatform.className = 'px-2 py-1.5 text-center font-medium tabular-nums';
 			if (isCancelled) tdPlatform.className += ' line-through text-red-600';
 			tdPlatform.textContent = schedule.platform === 'unknown' ? '--' : schedule.platform;
 			tr.appendChild(tdPlatform);
@@ -691,7 +705,109 @@ export function generateSchedulesElement(schedules: Schedule[], routeType: strin
 	
 	table.appendChild(tbody);
 	tableWrapper.appendChild(table);
-	container.appendChild(tableWrapper);
+	
+	return tableWrapper;
+}
+
+export function generateSchedulesElement(schedules: Schedule[], routeType: string, disruptions: Disruption[] | null = null): HTMLElement {
+	const container = document.createElement('div');
+	container.className = 'space-y-2 text-xs text-slate-800';
+	
+	if (disruptions && disruptions.length > 0) {
+		const disruptionsElement = generateDisruptionsElement(disruptions);
+		if (disruptionsElement) {
+			container.appendChild(disruptionsElement);
+		}
+	}
+	
+	if (!schedules || schedules.length === 0) {
+		const noScheduleP = document.createElement('p');
+		noScheduleP.className = 'mt-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-500';
+		noScheduleP.textContent = 'Aucun horaire disponible';
+		container.appendChild(noScheduleP);
+		return container;
+	}
+	
+	const showPlatform = routeType === 'RER' || routeType === 'Grandes lignes' || routeType === 'Transilien';
+	const maxSchedules = showPlatform ? MAX_SCHEDULES_RAIL : MAX_SCHEDULES_METRO_TRAM;
+	
+	const departures = schedules.filter(s => s.type === 'departure' || !s.type);
+	const arrivals = schedules.filter(s => s.type === 'arrival');
+	
+	const title = document.createElement('h5');
+	title.className = 'm-0 mb-1 text-sm font-semibold tracking-tight text-slate-900';
+	title.textContent = 'Prochains passages';
+	container.appendChild(title);
+	
+	if (arrivals.length === 0) {
+		container.appendChild(createSchedulesTable(departures, maxSchedules, showPlatform, routeType, 'departure'));
+	} else {
+		// Create Tabs
+		const tabsContainer = document.createElement('div');
+		tabsContainer.className = 'mt-1';
+		
+		const tabHeader = document.createElement('div');
+		tabHeader.className = 'flex space-x-1 rounded-t-lg bg-slate-200/60 p-1';
+		
+		const btnDepartures = document.createElement('button');
+		btnDepartures.className = 'flex-1 rounded-md bg-white py-1 px-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-900/5 transition-all cursor-pointer';
+		btnDepartures.textContent = 'Départs';
+		
+		const btnArrivals = document.createElement('button');
+		btnArrivals.className = 'flex-1 rounded-md py-1 px-2 text-xs font-medium text-slate-600 hover:text-slate-800 transition-all cursor-pointer';
+		btnArrivals.textContent = 'Arrivées';
+		
+		tabHeader.appendChild(btnDepartures);
+		tabHeader.appendChild(btnArrivals);
+		tabsContainer.appendChild(tabHeader);
+		
+		const tabContent = document.createElement('div');
+		
+		const departuresTable = createSchedulesTable(departures, maxSchedules, showPlatform, routeType, 'departure');
+		// Remove rounded borders from top if we have tabs
+		departuresTable.className = departuresTable.className.replace('rounded-xl', 'rounded-b-lg');
+		
+		const arrivalsTable = createSchedulesTable(arrivals, maxSchedules, showPlatform, routeType, 'arrival');
+		arrivalsTable.className = arrivalsTable.className.replace('rounded-xl', 'rounded-b-lg');
+		
+		tabContent.appendChild(departuresTable);
+		tabContent.appendChild(arrivalsTable);
+		tabsContainer.appendChild(tabContent);
+		
+		// Restaurer l'onglet actif depuis le sessionStorage
+		const activeTab = sessionStorage.getItem('activeSchedulesTab') || 'departure';
+		
+		if (activeTab === 'arrival') {
+			btnArrivals.className = 'flex-1 rounded-md bg-white py-1 px-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-900/5 transition-all cursor-pointer';
+			btnDepartures.className = 'flex-1 rounded-md py-1 px-2 text-xs font-medium text-slate-600 hover:text-slate-800 transition-all cursor-pointer';
+			arrivalsTable.style.display = 'block';
+			departuresTable.style.display = 'none';
+		} else {
+			btnDepartures.className = 'flex-1 rounded-md bg-white py-1 px-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-900/5 transition-all cursor-pointer';
+			btnArrivals.className = 'flex-1 rounded-md py-1 px-2 text-xs font-medium text-slate-600 hover:text-slate-800 transition-all cursor-pointer';
+			departuresTable.style.display = 'block';
+			arrivalsTable.style.display = 'none';
+		}
+		
+		// Tab switching logic
+		btnDepartures.addEventListener('click', () => {
+			sessionStorage.setItem('activeSchedulesTab', 'departure');
+			btnDepartures.className = 'flex-1 rounded-md bg-white py-1 px-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-900/5 transition-all cursor-pointer';
+			btnArrivals.className = 'flex-1 rounded-md py-1 px-2 text-xs font-medium text-slate-600 hover:text-slate-800 transition-all cursor-pointer';
+			departuresTable.style.display = 'block';
+			arrivalsTable.style.display = 'none';
+		});
+		
+		btnArrivals.addEventListener('click', () => {
+			sessionStorage.setItem('activeSchedulesTab', 'arrival');
+			btnArrivals.className = 'flex-1 rounded-md bg-white py-1 px-2 text-xs font-semibold text-slate-700 shadow-sm ring-1 ring-slate-900/5 transition-all cursor-pointer';
+			btnDepartures.className = 'flex-1 rounded-md py-1 px-2 text-xs font-medium text-slate-600 hover:text-slate-800 transition-all cursor-pointer';
+			arrivalsTable.style.display = 'block';
+			departuresTable.style.display = 'none';
+		});
+		
+		container.appendChild(tabsContainer);
+	}
 	
 	return container;
 }

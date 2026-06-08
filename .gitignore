@@ -28,3 +28,6 @@ pnpm-debug.log*
 
 # wrangler setting folder
 .wrangler/
+
+.opencode/
+AGENTS.md

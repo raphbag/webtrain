@@ -1,6 +1,7 @@
-export const prerender = false;
-
+import type { APIRoute } from 'astro';
 import { env } from "cloudflare:workers";
+
+export const prerender = false;
 
 const API_URL = 'https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring';
 
@@ -19,7 +20,7 @@ function cleanLineRef(lineRef: string | null): string | null {
 	return cleaned;
 }
 
-export async function GET({ url, locals }: { url: URL; locals: any }) {
+export const GET: APIRoute = async ({ url }) => {
 	try {
 		const API_KEY = env.IDFM_API_KEY;
 		const monitoringRef = url.searchParams.get('monitoringRef');
@@ -77,7 +78,7 @@ export async function GET({ url, locals }: { url: URL; locals: any }) {
 					status: 200,
 					headers: {
 						'Content-Type': 'application/json',
-						'Cache-Control': 'no-cache'
+						'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60'
 					}
 				});
 			}
@@ -103,4 +104,4 @@ export async function GET({ url, locals }: { url: URL; locals: any }) {
 			headers: { 'Content-Type': 'application/json' }
 		});
 	}
-}
+};

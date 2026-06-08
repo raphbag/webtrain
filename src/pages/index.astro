@@ -6,7 +6,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 ---
 
 <script>
-	import '../scripts/markerClusterer';
+
 	import { fetchStopSchedules, generateSchedulesElement, fetchLineDisruptions } from '../scripts/stopMonitoring';
 	
 	// Exposer globalement pour utilisation dans le code inline
@@ -24,6 +24,8 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 <Layout title="Webtrain - Visualisation des lignes de transport">
 	<div id="map" class="h-screen w-full z-0"></div>
 
+	<div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
 	<FilterPanel />
 </Layout>
 
@@ -33,13 +35,13 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		v: "weekly"
 	});
 
-	// URLs des endpoints serveur
-	const FERRE_URL = '/lignes.json';
-	const GARES_URL = '/gares.json';
+	// URLs des endpoints serveur (obsolète, remplacé par les appels spécifiques API Routes)
+	// Déclarations supprimées
 	
 	// Configuration
-	const REFRESH_INTERVAL_MS = 10000; // Intervalle d'actualisation en millisecondes (10 secondes)
-	const MIN_ZOOM_FOR_STOPS = 14; // Zoom minimum pour afficher les arrêts (15 = très zoomé)
+	const REFRESH_INTERVAL_MS = 30000; // Intervalle d'actualisation en millisecondes (10 secondes)
+	const MIN_ZOOM_FOR_STOPS = 13; // Zoom minimum pour afficher les arrêts (13 = vue région, 15 = très zoomé)
+	const LONG_DISTANCE_FAMILIES = new Set(['TER', 'Intercités', 'TGV', 'Grandes lignes']);
 	
 	let map;
 	let allLines = {}; // Stocker toutes les lignes par route_id
@@ -48,7 +50,60 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 	let allStops = {}; // Stocker tous les arrêts par ligne
 	let currentInfoWindow = null; // InfoWindow actuellement ouverte
 	let currentRefreshInterval = null; // Intervalle d'actualisation actuel
+	let currentLoadSchedules = null; // Fonction de chargement actuelle
 	let markerPositionMap = new Map(); // Map pour suivre les positions et décaler les markers superposés
+
+	// Gestion des Toasts
+	function showToast(message, type = 'error') {
+		const container = document.getElementById('toast-container');
+		if (!container) return;
+		
+		const toast = document.createElement('div');
+		const bgColor = type === 'error' ? 'bg-red-500' : 'bg-emerald-500';
+		toast.className = `${bgColor} text-white px-4 py-3 rounded-lg shadow-lg text-sm font-medium transition-all duration-300 transform translate-y-full opacity-0 flex items-center gap-2 pointer-events-auto`;
+		
+		const icon = type === 'error' ? '⚠️' : '✅';
+		toast.innerHTML = `<span>${icon}</span> <span>${message}</span>`;
+		
+		container.appendChild(toast);
+		
+		// Animation d'entrée
+		requestAnimationFrame(() => {
+			toast.classList.remove('translate-y-full', 'opacity-0');
+		});
+		
+		// Suppression après 4 secondes
+		setTimeout(() => {
+			toast.classList.add('translate-y-full', 'opacity-0');
+			setTimeout(() => toast.remove(), 300);
+		}, 4000);
+	}
+	window.showToast = showToast;
+
+	// Gestion de la visibilité de la page pour optimiser le polling
+	document.addEventListener('visibilitychange', () => {
+		if (document.hidden) {
+			if (currentRefreshInterval) {
+				clearInterval(currentRefreshInterval);
+				currentRefreshInterval = null;
+				console.log('⏸️ Polling en pause (onglet masqué)');
+			}
+		} else {
+			if (currentInfoWindow && currentLoadSchedules) {
+				console.log('▶️ Reprise du polling');
+				currentLoadSchedules();
+				currentRefreshInterval = setInterval(currentLoadSchedules, REFRESH_INTERVAL_MS);
+			}
+		}
+	});
+
+	function toFilterCategory(category) {
+		return LONG_DISTANCE_FAMILIES.has(category) ? 'Grandes lignes' : category;
+	}
+
+	function getDisplayLineName(line) {
+		return LONG_DISTANCE_FAMILIES.has(line.routeType) ? 'Grandes lignes' : line.routeName;
+	}
 
 	async function initMap() {
 		// Coordonnées de Paris
@@ -103,7 +158,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		};
 		
 		// Afficher les arrêts uniquement si très zoomé et dans la zone visible
-		map.addListener('bounds_changed', () => {
+		map.addListener('idle', () => {
 			updateStopsVisibility();
 		});
 
@@ -122,25 +177,37 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			let drawn = 0;
 			const bounds = new google.maps.LatLngBounds();
 			
-			// Charger le réseau ferré
-			console.log('📡 Chargement du réseau ferré d\'Île-de-France...');
-			const ferreResponse = await fetch(FERRE_URL);
-			if (!ferreResponse.ok) {
-				throw new Error(`Erreur HTTP: ${ferreResponse.status}`);
+			// Charger le réseau ferré (IDFM et SNCF)
+			console.log('📡 Chargement du réseau ferré d\'Île-de-France et SNCF...');
+			const [idfmFerreResponse, sncfFerreResponse] = await Promise.all([
+				fetch('/api/idfm/lignes.json'),
+				fetch('/api/sncf/lignes.json')
+			]);
+			
+			if (!idfmFerreResponse.ok) {
+				console.error(`Erreur HTTP IDFM Lignes: ${idfmFerreResponse.status}`);
+			}
+			if (!sncfFerreResponse.ok) {
+				console.error(`Erreur HTTP SNCF Lignes: ${sncfFerreResponse.status}`);
 			}
 			
-			const ferreData = await ferreResponse.json();
+			const idfmFerreData = idfmFerreResponse.ok ? await idfmFerreResponse.json() : { features: [] };
+			const sncfFerreData = sncfFerreResponse.ok ? await sncfFerreResponse.json() : { features: [] };
 			
-			if (ferreData.features && ferreData.features.length > 0) {
-				console.log(`📍 ${ferreData.features.length} segments de lignes ferrées à traiter`);
+			const ferreFeatures = [...(idfmFerreData.features || []), ...(sncfFerreData.features || [])];
+			
+			if (ferreFeatures.length > 0) {
+				console.log(`📍 ${ferreFeatures.length} segments de lignes ferrées à traiter`);
 				
-				for (const feature of ferreData.features) {
+				for (const feature of ferreFeatures) {
 					if (feature.geometry && feature.properties) {
-						const routeName = feature.properties.res_com || feature.properties.indice_lig || 'Ligne';
-						const routeColor = feature.properties.colourweb_hexa ? 
+						const routeName = feature.properties.name || feature.properties.res_com || feature.properties.indice_lig || 'Ligne';
+						const routeColor = feature.properties.color ? 
+						                  `#${feature.properties.color}` :
+						                  feature.properties.colourweb_hexa ? 
 						                  `#${feature.properties.colourweb_hexa}` : 
 						                  '#FF0000';
-						const mode = feature.properties.mode || '';
+						const mode = feature.properties.type === 'sncf' ? 'Grandes lignes' : feature.properties.mode || '';
 						const reseau = feature.properties.reseau || '';
 						
 						// Déterminer la catégorie selon le mode et le réseau
@@ -154,9 +221,8 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						} else if (feature.properties.tramway === 1 || mode === 'TRAMWAY') {
 							category = 'Tram';
 							weight = 4;
-						} else if (mode === 'TER') {
-							// TER a priorité sur tout (même si le réseau contient RER dans le nom)
-							category = 'TER';
+						} else if (mode === 'Grandes lignes' || mode === 'INTERCITES' || mode === 'TGV' || mode === 'TER') {
+							category = 'Grandes lignes';
 							weight = 4;
 						} else if (feature.properties.rer === 1 || (reseau.startsWith('RER') && mode !== 'TER')) {
 							// RER seulement si ce n'est pas un TER
@@ -168,13 +234,20 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 								category = 'Transilien';
 							} else {
 								// Autres trains (probablement des TER régionaux)
-								category = 'TER';
+								category = 'Grandes lignes';
 							}
 							weight = 4;
 						}
 						
 						// Utiliser routeName comme clé unique pour regrouper les segments
 						const uniqueKey = `${category}_${routeName}`;
+						
+						if (feature.properties.type === 'sncf') {
+							feature.properties.data_source = 'sncf';
+							if (!feature.properties.idrefligc) {
+								feature.properties.idrefligc = feature.properties.id; // Navitia line id
+							}
+						}
 						
 						// Récupérer l'image de la ligne
 						const routeId = feature.properties.idrefligc || feature.properties.idrefliga;
@@ -225,10 +298,11 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 							};
 							
 							// Catégoriser (seulement la première fois)
-							if (!window.filterPanelData.categories[category]) {
-								window.filterPanelData.categories[category] = [];
+							const filterCategory = toFilterCategory(category);
+							if (!window.filterPanelData.categories[filterCategory]) {
+								window.filterPanelData.categories[filterCategory] = [];
 							}
-							window.filterPanelData.categories[category].push(uniqueKey);
+							window.filterPanelData.categories[filterCategory].push(uniqueKey);
 							drawn++;
 						}
 						
@@ -267,15 +341,25 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 
 	async function loadStops(bounds) {
 		try {
-			const response = await fetch(GARES_URL);
-			if (!response.ok) {
-				throw new Error(`Erreur HTTP gares: ${response.status}`);
+			const [idfmGaresResponse, sncfGaresResponse] = await Promise.all([
+				fetch('/api/idfm/gares.json'),
+				fetch('/api/sncf/gares.json')
+			]);
+			
+			if (!idfmGaresResponse.ok) {
+				console.error(`Erreur HTTP IDFM Gares: ${idfmGaresResponse.status}`);
+			}
+			if (!sncfGaresResponse.ok) {
+				console.error(`Erreur HTTP SNCF Gares: ${sncfGaresResponse.status}`);
 			}
 			
-			const data = await response.json();
+			const idfmGaresData = idfmGaresResponse.ok ? await idfmGaresResponse.json() : { features: [] };
+			const sncfGaresData = sncfGaresResponse.ok ? await sncfGaresResponse.json() : { features: [] };
 			
-			if (data.features && data.features.length > 0) {
-				console.log(`🚉 ${data.features.length} gares à traiter`);
+			const garesFeatures = [...(idfmGaresData.features || []), ...(sncfGaresData.features || [])];
+			
+			if (garesFeatures.length > 0) {
+				console.log(`🚉 ${garesFeatures.length} gares à traiter`);
 				let stopsLoaded = 0;
 				let stopsSkipped = 0;
 				
@@ -302,11 +386,32 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				const stopsByNameAndLine = new Map();
 				
 				// Parcourir toutes les gares
-				for (const feature of data.features) {
+				for (const feature of garesFeatures) {
 					if (feature.geometry && feature.geometry.type === 'Point' && feature.properties) {
 						const properties = feature.properties;
 						const [lng, lat] = feature.geometry.coordinates;
 						
+						// Support the new /api/sncf/gares.json format
+						if (properties.type === 'sncf') {
+							properties.data_source = 'sncf';
+							properties.sncf_line_family = 'Grandes lignes';
+							properties.exploitant = 'SNCF';
+							properties.nom_gares = properties.name;
+							
+							// Extrait le code UIC depuis l'id Navitia (ex: stop_area:SNCF:87113001)
+							const uicMatch = properties.id && typeof properties.id === 'string' ? properties.id.match(/:SNCF:(\d+)/) : null;
+							if (uicMatch) {
+								const uic = uicMatch[1];
+								properties.code_uic = uic;
+								properties.id_ref_zda = uic;
+							}
+							
+							// Attribuer la ligne SNCF Grandes Lignes par défaut pour le matching
+							if (!properties.idrefligc) {
+								properties.idrefligc = 'Grandes lignes_Grandes lignes';
+							}
+						}
+
 						// Récupérer idrefligc comme LineRef
 						const routeId = properties.idrefligc;
 						if (!routeId) {
@@ -314,7 +419,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 							continue;
 						}
 						
-						let line = linesByOriginalId[routeId];
+						let line = linesByOriginalId[routeId] || window.filterPanelData.allLines[routeId];
 						
 						if (!line && routeId.startsWith('IDFM:')) {
 							const routeIdWithoutPrefix = routeId.replace('IDFM:', '');
@@ -323,6 +428,35 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						
 						if (!line && !routeId.startsWith('IDFM:')) {
 							line = linesByOriginalId[`IDFM:${routeId}`];
+						}
+
+						if (!line && properties.data_source === 'sncf' && properties.sncf_line_family) {
+							const family = properties.sncf_line_family;
+							const virtualOriginalRouteId = `SNCF:FAMILY:${family}`;
+							const virtualRouteId = `SNCF_${family}`;
+							const virtualColor = family === 'TGV' ? '#8B5CF6' : family === 'Intercités' ? '#2563EB' : '#1D4ED8';
+							const filterCategory = toFilterCategory(family);
+
+							if (!window.filterPanelData.allLines[virtualRouteId]) {
+								window.filterPanelData.allLines[virtualRouteId] = {
+									routeId: virtualRouteId,
+									routeName: family,
+									routeColor: virtualColor,
+									routeType: family,
+									properties: { data_source: 'sncf', virtual: true },
+									polylines: [],
+									visible: true,
+									originalRouteId: virtualOriginalRouteId
+								};
+
+								if (!window.filterPanelData.categories[filterCategory]) {
+									window.filterPanelData.categories[filterCategory] = [];
+								}
+								window.filterPanelData.categories[filterCategory].push(virtualRouteId);
+							}
+
+							line = window.filterPanelData.allLines[virtualRouteId];
+							linesByOriginalId[virtualOriginalRouteId] = line;
 						}
 						
 						if (!line) {
@@ -338,27 +472,48 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						
 						const stopName = properties.nom_gares || properties.nom_iv || 'Gare inconnue';
 						const stopKey = `${line.routeId}|${stopName}`;
+						const stopCodeUic = properties.code_uic ? String(properties.code_uic) : null;
+						const stopCodeUicValues = stopCodeUic
+							? stopCodeUic
+								.split(',')
+								.map((value) => value.trim())
+								.filter((value) => value.length > 0)
+							: [];
 						
 						// Utiliser id_ref_zda comme MonitoringRef avec le préfixe STIF:StopArea:SP:
-						const monitoringRef = properties.id_ref_zda ? `STIF:StopArea:SP:${properties.id_ref_zda}:` : null;
+						const isSncfSource = properties.data_source === 'sncf';
+						const monitoringRef = properties.id_ref_zda
+							? (isSncfSource ? String(properties.id_ref_zda) : `STIF:StopArea:SP:${properties.id_ref_zda}:`)
+							: null;
 						
-						// Regrouper par gare
-						if (!stopsByNameAndLine.has(stopKey)) {
+						// Regrouper par gare et fusionner les codes UIC d'un même libellé
+						const existingStop = stopsByNameAndLine.get(stopKey);
+						if (!existingStop) {
+							const stopCodeUics = new Set(stopCodeUicValues);
 							stopsByNameAndLine.set(stopKey, {
 								line,
 								stopName,
 								monitoringRef,
+								stopCodeUic: stopCodeUicValues[0] || null,
+								stopCodeUics,
+								dataSource: properties.data_source || 'idfm',
 								exploitant: properties.exploitant,
 								lat,
 								lng
 							});
+						} else if (stopCodeUicValues.length > 0) {
+							stopCodeUicValues.forEach((value) => existingStop.stopCodeUics.add(value));
 						}
 					}
 				}
 				
 				// Créer les markers
 				for (const [stopKey, stopData] of stopsByNameAndLine) {
-					const { line, stopName, monitoringRef, exploitant, lat, lng } = stopData;
+					const { line, stopName, monitoringRef, stopCodeUic, dataSource, exploitant, lat, lng } = stopData;
+					const mergedStopCodeUic =
+						stopData.stopCodeUics && stopData.stopCodeUics.size > 0
+							? Array.from(stopData.stopCodeUics).join(',')
+							: stopCodeUic;
 					
 					if (!monitoringRef) {
 						stopsSkipped++;
@@ -378,6 +533,8 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						{ 
 							stop_name: stopName, 
 							monitoring_ref: monitoringRef,
+							stop_code_uic: mergedStopCodeUic,
+							data_source: dataSource,
 							exploitant: exploitant,
 							original_lat: lat, 
 							original_lng: lng 
@@ -424,7 +581,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			// Masquer tous les markers
 			Object.values(window.filterPanelData.allStops || {}).forEach(stops => {
 				stops.forEach(marker => {
-					marker.map = null;
+					if (marker.map !== null) marker.map = null;
 				});
 			});
 			return;
@@ -433,17 +590,40 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		// Obtenir les limites visibles de la carte
 		const bounds = map.getBounds();
 		if (!bounds) return;
+
+		// Élargir légèrement les limites pour précharger les marqueurs juste hors de l'écran
+		// Cela évite l'effet de "pop" quand on déplace légèrement la carte
+		const sw = bounds.getSouthWest();
+		const ne = bounds.getNorthEast();
+		const latPad = (ne.lat() - sw.lat()) * 0.2;
+		const lngPad = (ne.lng() - sw.lng()) * 0.2;
+		
+		const paddedBounds = new google.maps.LatLngBounds(
+			new google.maps.LatLng(sw.lat() - latPad, sw.lng() - lngPad),
+			new google.maps.LatLng(ne.lat() + latPad, ne.lng() + lngPad)
+		);
 		
 		// Afficher uniquement les markers visibles des lignes actives
 		Object.entries(window.filterPanelData.allStops || {}).forEach(([routeId, stops]) => {
 			const line = window.filterPanelData.allLines[routeId];
 			const lineVisible = line && line.visible;
 			
+			if (!lineVisible) {
+				// Si la ligne n'est pas visible, on s'assure que ses markers sont masqués
+				stops.forEach(marker => {
+					if (marker.map !== null) marker.map = null;
+				});
+				return;
+			}
+			
 			stops.forEach(marker => {
-				// Afficher uniquement si la ligne est visible ET le marker est dans les limites
-				if (lineVisible && bounds.contains(marker.position)) {
+				// Afficher uniquement si le marker est dans les limites élargies
+				const isVisible = paddedBounds.contains(marker.position);
+				
+				// Optimisation : ne modifier le DOM que si l'état change
+				if (isVisible && marker.map === null) {
 					marker.map = map;
-				} else {
+				} else if (!isVisible && marker.map !== null) {
 					marker.map = null;
 				}
 			});
@@ -506,7 +686,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 
 		marker.stopData = {
 			stopName: properties.stop_name || 'Arrêt',
-			lineName: line.routeName,
+			lineName: getDisplayLineName(line),
 			lineId: line.routeId
 		};
 
@@ -535,11 +715,11 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			
 			// Créer le conteneur avec Tailwind CSS
 			const contentDiv = document.createElement('div');
-			contentDiv.className = 'min-w-[200px] max-w-[400px]';
+			contentDiv.className = 'schedule-info-window min-w-[220px] max-w-[420px] rounded-xl bg-slate-50/95 p-2.5 text-slate-700 m-1';
 			
 			// Header avec logo de ligne et titre
 			const headerDiv = document.createElement('div');
-			headerDiv.className = 'flex items-start gap-2 mb-2';
+			headerDiv.className = 'flex items-start gap-2 mb-2 ml-4';
 			
 			// Logo de la ligne (si disponible)
 			if (line.imageUrl) {
@@ -563,8 +743,8 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			titleContainer.appendChild(title);
 			
 			const lineInfo = document.createElement('p');
-			lineInfo.className = 'my-1 text-xs text-gray-600';
-			lineInfo.textContent = `Ligne: ${line.routeName}`;
+			lineInfo.className = 'my-1 text-xs text-slate-700';
+			lineInfo.textContent = `Ligne : ${getDisplayLineName(line)}`;
 			titleContainer.appendChild(lineInfo);
 			
 			headerDiv.appendChild(titleContainer);
@@ -572,16 +752,16 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			// Afficher l'exploitant
 			if (properties.exploitant) {
 				const exploitantInfo = document.createElement('p');
-				exploitantInfo.className = 'my-1 text-[10px] text-gray-300';
+				exploitantInfo.className = 'rounded-md bg-slate-400/5 px-2 py-1 text-[10px] text-slate-500';
 				exploitantInfo.textContent = properties.exploitant;
 				contentDiv.appendChild(exploitantInfo);
 			}
 			
 			const schedulesContainer = document.createElement('div');
-			schedulesContainer.className = 'mt-3';
+			schedulesContainer.className = 'mt-2';
 			
 			const loadingText = document.createElement('p');
-			loadingText.className = 'text-[11px] text-gray-400';
+			loadingText.className = 'rounded-lg border border-slate-200 bg-slate-200/60 px-2.5 py-2 text-[11px] text-slate-500';
 			loadingText.textContent = 'Chargement des horaires...';
 			schedulesContainer.appendChild(loadingText);
 			
@@ -601,17 +781,32 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			
 			// Fonction pour charger les horaires et perturbations
 			const loadSchedules = async () => {
+				const lineSource = line.properties?.data_source === 'sncf' ? 'sncf' : 'idfm';
 				if (monitoringRef && line.originalRouteId) {
 					try {
 						// Pour Métro et Tram : utiliser line_reports (pas de stop_point)
 						// Pour RER, TER, Transilien : utiliser disruptions avec stop_point
 						const useStopPoint = line.routeType !== 'Métro' && line.routeType !== 'Tram';
-						const idRefZdA = useStopPoint ? monitoringRef.split(':')[3] : null;
+						const idRefZdA = lineSource === 'idfm' && useStopPoint ? monitoringRef.split(':')[3] : null;
 						
 						// Charger horaires et perturbations en parallèle
 						const [allSchedules, disruptions] = await Promise.all([
-							window.fetchStopSchedules(monitoringRef, line.originalRouteId, line.routeType),
-							window.fetchLineDisruptions(line.originalRouteId, idRefZdA, line.routeType)
+							window.fetchStopSchedules(
+								monitoringRef,
+								line.originalRouteId,
+								line.routeType,
+								properties.stop_name || null,
+								line.routeName || null,
+								lineSource,
+								properties.stop_code_uic || null
+							),
+							window.fetchLineDisruptions(
+								line.originalRouteId,
+								idRefZdA,
+								line.routeType,
+								lineSource,
+								line.routeName || null
+							)
 						]);
 						
 						// Vérifier que cette InfoWindow est toujours l'InfoWindow active
@@ -622,17 +817,21 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						schedulesContainer.appendChild(schedulesElement);
 					} catch (error) {
 						console.error('Erreur chargement horaires:', error);
+						if (window.showToast) {
+							window.showToast('Impossible de se connecter au réseau IDFM', 'error');
+						}
 						if (currentInfoWindow !== infoWindow) return;
 						schedulesContainer.innerHTML = '';
 						const errorText = document.createElement('p');
-						errorText.className = 'text-[11px] text-gray-400';
-						errorText.textContent = 'Erreur de chargement';
+						errorText.className = 'text-[11px] text-red-500 bg-red-50/50 p-2 rounded';
+						errorText.textContent = 'Connexion interrompue ou service indisponible.';
 						schedulesContainer.appendChild(errorText);
 					}
 				}
 			};
 			
 			// Charger les horaires immédiatement
+			currentLoadSchedules = loadSchedules;
 			loadSchedules();
 			
 			// Actualiser selon l'intervalle configuré
@@ -644,6 +843,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 					clearInterval(currentRefreshInterval);
 					currentRefreshInterval = null;
 				}
+				currentLoadSchedules = null;
 				currentInfoWindow = null;
 				
 				// Nettoyer l'état des perturbations déroulées pour cette station
@@ -653,6 +853,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						sessionStorage.removeItem(key);
 					}
 				});
+				sessionStorage.removeItem('activeSchedulesTab');
 			});
 		};
 
@@ -702,7 +903,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		});
 
 		// Ajouter info-bulle au clic
-		polyline.addListener('click', (event) => {
+			polyline.addListener('click', (event) => {
 			// Fermer l'infoWindow précédente si elle existe
 			if (currentInfoWindow) {
 				currentInfoWindow.close();
@@ -713,6 +914,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				clearInterval(currentRefreshInterval);
 				currentRefreshInterval = null;
 			}
+			currentLoadSchedules = null;
 			
 			const routeType = getRouteTypeName(properties.route_type);
 			
@@ -781,7 +983,9 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			'Train': 'Train',
 			'Tramway': 'Tramway',
 			'RER': 'RER',
-			'VAL': 'VAL'
+			'VAL': 'VAL',
+			'INTERCITES': 'Intercités',
+			'TGV': 'TGV'
 		};
 		return types[routeType] || routeType || 'Transport';
 	}
