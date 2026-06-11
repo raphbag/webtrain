@@ -610,7 +610,9 @@ function createSchedulesTable(schedules: Schedule[], maxSchedules: number, showP
 		const isCancelled = schedule.isCancelled || false;
 		const journeyNote = schedule.journeyNote || null;
 		const vehicleAtStop = schedule.vehicleAtStop || false;
-		const isDelayed = Boolean(expectedTime && aimedTime && expectedTime > aimedTime);
+		const aimedHourMin = aimedTime ? aimedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : null;
+		const expectedHourMin = expectedTime ? expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : null;
+		const isDelayed = Boolean(expectedTime && aimedTime && expectedTime > aimedTime && aimedHourMin !== expectedHourMin);
 		
 		const displayTime = expectedTime || aimedTime;
 		if (!displayTime) return;
@@ -644,19 +646,18 @@ function createSchedulesTable(schedules: Schedule[], maxSchedules: number, showP
 		
 		const timeSpan = document.createElement('span');
 		timeSpan.className = 'font-medium tabular-nums';
-		if (isDelayed) timeSpan.className += ' line-through text-slate-500';
+		const isTrain = routeType === 'RER' || routeType === 'Grandes lignes' || routeType === 'Transilien';
+		
+		if (isDelayed && isTrain) timeSpan.className += ' line-through text-slate-500';
 		timeSpan.textContent = timeStr;
 		timeContainer.appendChild(timeSpan);
 		
-		if ((routeType === 'RER' || routeType === 'Grandes lignes' || routeType === 'Transilien') && isDelayed && expectedTime && aimedTime) {
-			const delayMinutes = Math.round((expectedTime.getTime() - aimedTime.getTime()) / 60000);
-			if (delayMinutes > 0) {
-				const expectedTimeStr = expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-				const delaySpan = document.createElement('span');
-				delaySpan.className = 'rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700';
-				delaySpan.textContent = expectedTimeStr;
-				timeContainer.appendChild(delaySpan);
-			}
+		if (isTrain && isDelayed && expectedTime && aimedTime) {
+			const expectedTimeStr = expectedTime.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+			const delaySpan = document.createElement('span');
+			delaySpan.className = 'rounded-full bg-orange-100 px-1.5 py-0.5 text-[10px] font-semibold text-orange-700';
+			delaySpan.textContent = expectedTimeStr;
+			timeContainer.appendChild(delaySpan);
 		}
 		
 		if (vehicleAtStop) {
