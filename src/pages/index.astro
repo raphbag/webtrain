@@ -44,14 +44,12 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 	const LONG_DISTANCE_FAMILIES = new Set(['TER', 'Intercités', 'TGV', 'Grandes lignes']);
 	
 	let map;
-	let allLines = {}; // Stocker toutes les lignes par route_id
-	let categories = {}; // Catégories de transport
-	let lineImages = {}; // Cache des images de lignes
-	let allStops = {}; // Stocker tous les arrêts par ligne
+
 	let currentInfoWindow = null; // InfoWindow actuellement ouverte
 	let currentRefreshInterval = null; // Intervalle d'actualisation actuel
 	let currentLoadSchedules = null; // Fonction de chargement actuelle
-	let markerPositionMap = new Map(); // Map pour suivre les positions et décaler les markers superposés
+	let markerPositionMap = new Map(); // Map pour suivre les positions
+	let lineImages = {}; // Stocker les images des lignes
 
 	// Gestion des Toasts
 	function showToast(message, type = 'error') {
@@ -317,7 +315,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				
 				// Charger les gares
 				console.log('📡 Chargement des gares...');
-				await loadStops(bounds);
+				await loadStops();
 				
 				// Ajuster la vue pour afficher toutes les lignes
 				map.fitBounds(bounds);
@@ -339,7 +337,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		}
 	}
 
-	async function loadStops(bounds) {
+  async function loadStops() {
 		try {
 			const [idfmGaresResponse, sncfGaresResponse] = await Promise.all([
 				fetch('/api/idfm/gares.json'),
@@ -508,7 +506,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				}
 				
 				// Créer les markers
-				for (const [stopKey, stopData] of stopsByNameAndLine) {
+    for (const [, stopData] of stopsByNameAndLine) {
 					const { line, stopName, monitoringRef, stopCodeUic, dataSource, exploitant, lat, lng } = stopData;
 					const mergedStopCodeUic =
 						stopData.stopCodeUics && stopData.stopCodeUics.size > 0
@@ -675,14 +673,14 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			glyphColor: '#FFFFFF',
 			scale: 0.8
 		});
-		// Ne pas ajouter à la carte initialement
+  		// Ne pas ajouter à la carte initialement
 		const marker = new AdvancedMarkerElement({
-			position,
-			map: null,
-			title: properties.stop_name || 'Arrêt',
-			content: pinElement.element,
-			gmpClickable: true
-		});
+  			position,
+  			map: null,
+  			title: properties.stop_name || 'Arrêt',
+			content: pinElement,
+  			gmpClickable: true
+  		});
 
 		marker.stopData = {
 			stopName: properties.stop_name || 'Arrêt',

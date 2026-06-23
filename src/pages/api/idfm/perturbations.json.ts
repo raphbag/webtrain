@@ -70,7 +70,7 @@ export const GET: APIRoute = async ({ url }) => {
 			});
 		}
 		
-		const data = await response.json();
+		const data = await response.json() as any;
 		
 		// Filter disruptions by 'active' status
 		if (data && data.disruptions && Array.isArray(data.disruptions)) {
