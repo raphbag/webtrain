@@ -21,6 +21,7 @@ interface Schedule {
 	isCancelled: boolean;
 	journeyNote: string | null;
 	vehicleAtStop: boolean;
+	vehicleJourneyRef?: string;
 	type?: 'departure' | 'arrival';
 }
 
@@ -175,6 +176,15 @@ function parseSchedulesData(data: any, requestedLineRef: string | null = null): 
 			// Récupérer VehicleAtStop
 			const vehicleAtStop = journey.MonitoredCall?.VehicleAtStop === true;
 			
+			let vehicleJourneyRef: string | undefined;
+			const siriId = journey.FramedVehicleJourneyRef?.DatedVehicleJourneyRef?.value || journey.FramedVehicleJourneyRef?.DatedVehicleJourneyRef || journey.VehicleJourneyRef?.value || journey.VehicleJourneyRef;
+			if (siriId && typeof siriId === 'string' && siriId.includes('SNCF')) {
+				const match = siriId.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+				if (match) {
+					vehicleJourneyRef = match[0];
+				}
+			}
+			
 			if (aimedTime || expectedTime) {
 				schedules.push({
 					destination: destinationName,
@@ -184,6 +194,7 @@ function parseSchedulesData(data: any, requestedLineRef: string | null = null): 
 					isCancelled: isCancelled,
 					journeyNote: journeyNote,
 					vehicleAtStop: vehicleAtStop,
+					vehicleJourneyRef: vehicleJourneyRef,
 					type: 'departure' // Par défaut IDFM c'est presque toujours des départs
 				});
 			}
@@ -637,6 +648,13 @@ function createSchedulesTable(schedules: Schedule[], maxSchedules: number, showP
 			tr.className += ' text-red-600';
 		}
 		
+		if (schedule.vehicleJourneyRef) {
+			tr.className += ' cursor-pointer hover:bg-blue-50/80';
+			tr.onclick = () => {
+				renderJourneyDetails(schedule.vehicleJourneyRef!, schedule, tableWrapper);
+			};
+		}
+		
 		const tdTime = document.createElement('td');
 		tdTime.className = 'whitespace-nowrap px-2 py-1.5';
 		if (isCancelled) tdTime.className += ' line-through text-red-600';
@@ -820,3 +838,174 @@ export function generateSchedulesHTML(schedules: Schedule[], routeType: string):
 	const element = generateSchedulesElement(schedules, routeType);
 	return element.outerHTML;
 }
+
+async function renderJourneyDetails(uuid: string, schedule: Schedule, tableWrapper: HTMLElement) {
+	const tableElement = tableWrapper.querySelector('table');
+	if (!tableElement) return;
+	
+	tableElement.style.display = 'none';
+	
+	const timelineWrapper = document.createElement("div");
+	timelineWrapper.className = "journey-timeline-wrapper relative";
+	
+	timelineWrapper.innerHTML = `
+		<div class="p-3 text-center text-xs text-slate-500">
+			<div class="mb-2 animate-spin h-4 w-4 border-2 border-blue-600 border-t-transparent rounded-full mx-auto"></div>
+			Chargement du trajet...
+		</div>
+	`;
+	tableWrapper.appendChild(timelineWrapper);
+	
+	try {
+		const res = await fetch(`/api/idfm/trajet.json?id=${uuid}`);
+		if (!res.ok) throw new Error("API Error");
+		const data = (await res.json()) as any;
+		
+		if (!data.stops || data.stops.length === 0) {
+			throw new Error("No stops");
+		}
+		
+		timelineWrapper.innerHTML = "";
+		
+		const container = document.createElement("div");
+		container.className = "flex flex-col bg-white";
+		
+		const backBtn = document.createElement("button");
+		backBtn.className = "sticky top-0 z-20 flex w-full items-center gap-1.5 border-b border-slate-200 bg-slate-50/95 px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm backdrop-blur transition-colors hover:bg-slate-100 cursor-pointer";
+		backBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg> Retour aux horaires`;
+		backBtn.onclick = () => {
+			timelineWrapper.remove();
+			tableElement.style.display = 'table';
+		};
+		container.appendChild(backBtn);
+		
+		const timelineHeader = document.createElement("div");
+		timelineHeader.className = "bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 border-b border-slate-200";
+		timelineHeader.innerHTML = `Trajet ${schedule.journeyNote ? `<span class="bg-blue-100 text-blue-800 px-1 py-0.5 rounded">${schedule.journeyNote}</span>` : ""} vers <b>${schedule.destination}</b>`;
+		container.appendChild(timelineHeader);
+		
+		const timelineList = document.createElement("div");
+		timelineList.className = "flex flex-col py-3 timeline-list-container";
+		
+		const renderListContent = (data: any) => {
+			timelineList.innerHTML = "";
+			const nowStr = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).replace(/:/g, "");
+			
+			// Find the index of the first stop that is in the future
+			let firstFutureIdx = data.stops.findIndex((stop: any) => {
+				const timeToUse = stop.expectedDepartureTime || stop.expectedArrivalTime || stop.aimedDepartureTime || stop.aimedArrivalTime;
+				return timeToUse >= nowStr;
+			});
+			if (firstFutureIdx === -1) firstFutureIdx = data.stops.length - 1; // Train is at the end or past end
+			
+			data.stops.forEach((stop: any, index: number) => {
+				const item = document.createElement("div");
+				item.className = "flex items-stretch min-h-[36px] group";
+				
+				const formatT = (t: string) => t && t.length >= 4 ? t.substring(0, 2) + ":" + t.substring(2, 4) : "--:--";
+				const expTime = stop.expectedDepartureTime || stop.expectedArrivalTime;
+				const aimTime = stop.aimedDepartureTime || stop.aimedArrivalTime;
+				
+				const isPast = index < firstFutureIdx;
+				const isCurrent = index === firstFutureIdx;
+				const isCancelled = stop.status === "cancelled";
+				const hasDelay = expTime && aimTime && expTime !== aimTime;
+
+				// Column 1: Time
+				const timeDiv = document.createElement("div");
+				timeDiv.className = "w-[48px] shrink-0 text-right pr-3 flex flex-col justify-center tabular-nums leading-none";
+				
+				if (isCancelled) {
+					timeDiv.innerHTML = `<span class="line-through text-slate-400 text-[11px]">${formatT(aimTime)}</span>`;
+				} else if (hasDelay) {
+					timeDiv.innerHTML = `<span class="line-through text-slate-400 text-[10px] mb-0.5">${formatT(aimTime)}</span><span class="text-orange-600 font-bold text-[11px]">${formatT(expTime)}</span>`;
+				} else {
+					timeDiv.innerHTML = `<span class="text-[11px] ${isPast ? 'text-slate-400' : (isCurrent ? 'text-blue-700 font-bold' : 'text-slate-700 font-semibold')}">${formatT(aimTime)}</span>`;
+				}
+
+				// Column 2: Track line and dot
+				const trackDiv = document.createElement("div");
+				trackDiv.className = "w-4 shrink-0 relative flex flex-col items-center justify-center";
+				
+				const isFirst = index === 0;
+				const isLast = index === data.stops.length - 1;
+				
+				// Line segments
+				if (!isFirst) {
+					const topHalf = document.createElement("div");
+					const topColor = index <= firstFutureIdx ? "bg-slate-300" : "bg-blue-600";
+					topHalf.className = `absolute top-0 w-1.5 h-1/2 ${topColor}`;
+					trackDiv.appendChild(topHalf);
+				}
+				
+				if (!isLast) {
+					const bottomHalf = document.createElement("div");
+					const bottomColor = isPast ? "bg-slate-300" : "bg-blue-600";
+					bottomHalf.className = `absolute bottom-0 w-1.5 h-1/2 ${bottomColor}`;
+					trackDiv.appendChild(bottomHalf);
+				}
+				
+				// Dot
+				const dot = document.createElement("div");
+				let dotClass = "h-2 w-2 rounded-full border-[1.5px] border-slate-300 bg-white z-10 ring-[2px] ring-white";
+				
+				if (isCancelled) {
+					dotClass = "h-2.5 w-2.5 rounded-full border-[2px] border-orange-500 bg-white z-10 ring-[2px] ring-white";
+				} else if (isCurrent) {
+					dotClass = "h-3.5 w-3.5 rounded-full border-[3px] border-blue-600 bg-white z-10 ring-[3px] ring-white shadow-[0_0_0_6px_rgba(37,99,235,0.15)]";
+				} else if (!isPast) {
+					dotClass = "h-2.5 w-2.5 rounded-full border-[2.5px] border-blue-600 bg-white z-10 ring-[2px] ring-white";
+				}
+				dot.className = dotClass;
+				trackDiv.appendChild(dot);
+				
+				// Column 3: Name
+				const nameDiv = document.createElement("div");
+				nameDiv.className = `flex-1 pl-3 flex flex-col justify-center py-1.5`;
+				
+				let nameHtml = `<span class="text-[12px] leading-snug tracking-tight ${isPast ? 'text-slate-500' : (isCurrent ? 'text-slate-900 font-bold' : 'text-slate-800 font-semibold')} ${isCancelled ? 'line-through opacity-70' : ''}">${stop.name}</span>`;
+				if (isCancelled) {
+					nameHtml += `<span class="text-[9px] text-orange-600 font-bold uppercase tracking-wider mt-0.5">Supprimé</span>`;
+				}
+				nameDiv.innerHTML = nameHtml;
+				
+				item.appendChild(timeDiv);
+				item.appendChild(trackDiv);
+				item.appendChild(nameDiv);
+				
+				timelineList.appendChild(item);
+			});
+		};
+		
+		renderListContent(data);
+		
+		container.appendChild(timelineList);
+		timelineWrapper.appendChild(container);
+		
+		// Add refresh function to wrapper
+		(timelineWrapper as any).refresh = async () => {
+			try {
+				const res = await fetch(`/api/idfm/trajet.json?id=${uuid}`);
+				if (!res.ok) return;
+				const newData = (await res.json()) as any;
+				if (!newData.stops || newData.stops.length === 0) return;
+				renderListContent(newData);
+			} catch (err) {
+				console.error("Silent refresh failed", err);
+			}
+		};
+		
+	} catch (err) {
+		timelineWrapper.innerHTML = `
+			<div class="p-3 text-center text-xs text-red-500">
+				Impossible de charger les détails du trajet.
+				<button class="mt-2 block w-full rounded bg-slate-100 px-2 py-1 text-slate-700 underline cursor-pointer">Retour</button>
+			</div>
+		`;
+		timelineWrapper.querySelector('button')?.addEventListener('click', () => {
+			timelineWrapper.remove();
+			tableElement.style.display = 'table';
+		});
+	}
+}
+

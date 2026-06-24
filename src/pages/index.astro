@@ -1,4 +1,4 @@
-﻿---
+---
 import FilterPanel from '../components/FilterPanel.astro';
 import Layout from '../layouts/Layout.astro';
 import { env } from "cloudflare:workers";
@@ -809,6 +809,15 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						
 						// Vérifier que cette InfoWindow est toujours l'InfoWindow active
 						if (currentInfoWindow !== infoWindow) return;
+						
+						// Ne pas rafraîchir si la vue détaillée du trajet (timeline) est ouverte
+						if (schedulesContainer.querySelector('.journey-timeline-wrapper')) {
+							const timelineWrapper = schedulesContainer.querySelector('.journey-timeline-wrapper');
+							if (timelineWrapper && typeof timelineWrapper.refresh === 'function') {
+								timelineWrapper.refresh();
+							}
+							return;
+						}
 						
 						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType, disruptions);
 						schedulesContainer.innerHTML = '';
