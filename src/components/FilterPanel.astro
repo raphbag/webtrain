@@ -272,7 +272,7 @@
 			header.className = 'flex items-center p-3 bg-white/5 cursor-pointer select-none transition-all duration-300 hover:bg-white/15';
 			header.classList.add('collapsed');
 			header.innerHTML = `
-				<input type="checkbox" class="category-checkbox mr-3" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}">
+				<input type="checkbox" class="category-checkbox mr-3" ${visibleCount === routeIds.length ? 'checked' : ''} data-category="${categoryName}" aria-label="Afficher/masquer la catégorie ${categoryName}">
 				<span class="category-name flex-1 font-bold text-sm text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)]">${categoryName}</span>
 				<span class="category-count text-xs text-white/80 mr-2 font-semibold bg-white/10 px-2 py-0.5 rounded">${visibleCount}/${routeIds.length}</span>
 				<span class="category-toggle text-base text-white/90 transition-transform duration-300" style="transform: rotate(90deg);">▼</span>
@@ -352,7 +352,7 @@
 				}
 				
 				lineItem.innerHTML = `
-					<input type="checkbox" class="line-checkbox mr-2" ${line.visible ? 'checked' : ''} data-route-id="${line.routeId}">
+					<input type="checkbox" class="line-checkbox mr-2" ${line.visible ? 'checked' : ''} data-route-id="${line.routeId}" aria-label="Afficher/masquer la ligne ${line.routeName}">
 					${lineVisual}
 					<span class="line-name flex-1 font-semibold text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.2)]">${line.routeName}</span>
 				`;

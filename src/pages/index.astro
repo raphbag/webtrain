@@ -22,7 +22,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 </script>
 
 <Layout title="Webtrain - Visualisation des lignes de transport">
-	<div id="map" class="h-screen w-full z-0"></div>
+	<div id="map" class="h-screen w-full z-0 bg-[#242f3e]"></div>
 
 	<div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
@@ -103,6 +103,16 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		return LONG_DISTANCE_FAMILIES.has(line.routeType) ? 'Grandes lignes' : line.routeName;
 	}
 
+	// Lancer toutes les requêtes en parallèle dès le début, hors de initMap pour gagner du temps
+	const globalLinesPromises = Promise.all([
+		fetch('/api/idfm/lignes.json').then(r => r.ok ? r.json() : { features: [] }),
+		fetch('/api/sncf/lignes.json').then(r => r.ok ? r.json() : { features: [] })
+	]);
+	const globalStopsPromises = Promise.all([
+		fetch('/api/idfm/gares.json').then(r => r.ok ? r.json() : { features: [] }),
+		fetch('/api/sncf/gares.json').then(r => r.ok ? r.json() : { features: [] })
+	]);
+
 	async function initMap() {
 		// Coordonnées de Paris
 		const position = { lat: 48.852969, lng: 2.349903 };
@@ -175,27 +185,18 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			let drawn = 0;
 			const bounds = new google.maps.LatLngBounds();
 			
-			// Charger le réseau ferré (IDFM et SNCF)
-			console.log('📡 Chargement du réseau ferré d\'Île-de-France et SNCF...');
-			const [idfmFerreResponse, sncfFerreResponse] = await Promise.all([
-				fetch('/api/idfm/lignes.json'),
-				fetch('/api/sncf/lignes.json')
-			]);
+			// Utiliser les requêtes lancées globalement
+			console.log('📡 Attente du chargement parallèle des réseaux et gares...');
 			
-			if (!idfmFerreResponse.ok) {
-				console.error(`Erreur HTTP IDFM Lignes: ${idfmFerreResponse.status}`);
-			}
-			if (!sncfFerreResponse.ok) {
-				console.error(`Erreur HTTP SNCF Lignes: ${sncfFerreResponse.status}`);
-			}
-			
-			const idfmFerreData = idfmFerreResponse.ok ? await idfmFerreResponse.json() : { features: [] };
-			const sncfFerreData = sncfFerreResponse.ok ? await sncfFerreResponse.json() : { features: [] };
+			// Attendre d'abord les lignes
+			const [idfmFerreData, sncfFerreData] = await globalLinesPromises;
 			
 			const ferreFeatures = [...(idfmFerreData.features || []), ...(sncfFerreData.features || [])];
 			
 			if (ferreFeatures.length > 0) {
 				console.log(`📍 ${ferreFeatures.length} segments de lignes ferrées à traiter`);
+				
+				let startTime = performance.now();
 				
 				for (const feature of ferreFeatures) {
 					if (feature.geometry && feature.properties) {
@@ -223,38 +224,31 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 							category = 'Grandes lignes';
 							weight = 4;
 						} else if (feature.properties.rer === 1 || (reseau.startsWith('RER') && mode !== 'TER')) {
-							// RER seulement si ce n'est pas un TER
 							category = 'RER';
 							weight = 5;
 						} else if (mode === 'TRAIN' || feature.properties.train === 1) {
-							// Les trains H, J, K, L, N, P, R, U, V sont des Transilien
 							if (routeName.match(/TRAIN [HJKLNPRUV]$/)) {
 								category = 'Transilien';
 							} else {
-								// Autres trains (probablement des TER régionaux)
 								category = 'Grandes lignes';
 							}
 							weight = 4;
 						}
 						
-						// Utiliser routeName comme clé unique pour regrouper les segments
 						const uniqueKey = `${category}_${routeName}`;
 						
 						if (feature.properties.type === 'sncf') {
 							feature.properties.data_source = 'sncf';
 							if (!feature.properties.idrefligc) {
-								feature.properties.idrefligc = feature.properties.id; // Navitia line id
+								feature.properties.idrefligc = feature.properties.id;
 							}
 						}
 						
-						// Récupérer l'image de la ligne
 						const routeId = feature.properties.idrefligc || feature.properties.idrefliga;
 						const lineId = routeId?.replace('IDFM:', '') || '';
 						
-						// Essayer plusieurs stratégies pour trouver l'image
 						let lineImageUrl = lineImages[routeId] || lineImages[lineId];
 						
-						// Si picto_final existe et semble être une URL relative, construire l'URL complète
 						if (!lineImageUrl && feature.properties.picto_final) {
 							const pictoPath = feature.properties.picto_final;
 							lineImageUrl = pictoPath.startsWith('http') 
@@ -271,18 +265,14 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 							feature.properties
 						);
 						
-						// Ne pas ajouter si pas de polylines
 						if (polylines.length === 0) continue;
 						
-						// Si la ligne existe déjà, ajouter les polylines
 						if (window.filterPanelData.allLines[uniqueKey]) {
 							window.filterPanelData.allLines[uniqueKey].polylines.push(...polylines);
-							// Mettre à jour l'originalRouteId si pas encore défini
 							if (!window.filterPanelData.allLines[uniqueKey].originalRouteId && routeId) {
 								window.filterPanelData.allLines[uniqueKey].originalRouteId = routeId;
 							}
 						} else {
-							// Créer une nouvelle entrée de ligne
 							window.filterPanelData.allLines[uniqueKey] = {
 								routeId: uniqueKey,
 								routeName,
@@ -292,10 +282,9 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 								polylines,
 								visible: true,
 								imageUrl: lineImageUrl,
-								originalRouteId: routeId // Garder l'ID original pour matcher avec les arrêts
+								originalRouteId: routeId
 							};
 							
-							// Catégoriser (seulement la première fois)
 							const filterCategory = toFilterCategory(category);
 							if (!window.filterPanelData.categories[filterCategory]) {
 								window.filterPanelData.categories[filterCategory] = [];
@@ -304,18 +293,19 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 							drawn++;
 						}
 						
-						if (drawn % 20 === 0) {
-							console.log(`Réseau ferré: ${drawn} lignes...`);
-							await new Promise(resolve => setTimeout(resolve, 10));
+						// Yield pour ne pas bloquer le thread principal si on prend plus de 16ms
+						if (performance.now() - startTime > 16) {
+							await new Promise(resolve => setTimeout(resolve, 0));
+							startTime = performance.now();
 						}
 					}
 				}
 				
-				console.log(`✅ ${drawn} lignes ferrées chargées:`, Object.keys(window.filterPanelData.categories).map(cat => `${cat} (${window.filterPanelData.categories[cat].length})`).join(', '));
+				console.log(`✅ ${drawn} lignes ferrées traitées`);
 				
-				// Charger les gares
-				console.log('📡 Chargement des gares...');
-				await loadStops();
+				// Charger les gares en utilisant les données déjà en cours de fetch
+				console.log('📡 Traitement des gares...');
+				await loadStops(globalStopsPromises);
 				
 				// Ajuster la vue pour afficher toutes les lignes
 				map.fitBounds(bounds);
@@ -337,22 +327,9 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		}
 	}
 
-  async function loadStops() {
+  async function loadStops(stopsPromises) {
 		try {
-			const [idfmGaresResponse, sncfGaresResponse] = await Promise.all([
-				fetch('/api/idfm/gares.json'),
-				fetch('/api/sncf/gares.json')
-			]);
-			
-			if (!idfmGaresResponse.ok) {
-				console.error(`Erreur HTTP IDFM Gares: ${idfmGaresResponse.status}`);
-			}
-			if (!sncfGaresResponse.ok) {
-				console.error(`Erreur HTTP SNCF Gares: ${sncfGaresResponse.status}`);
-			}
-			
-			const idfmGaresData = idfmGaresResponse.ok ? await idfmGaresResponse.json() : { features: [] };
-			const sncfGaresData = sncfGaresResponse.ok ? await sncfGaresResponse.json() : { features: [] };
+			const [idfmGaresData, sncfGaresData] = await stopsPromises;
 			
 			const garesFeatures = [...(idfmGaresData.features || []), ...(sncfGaresData.features || [])];
 			
@@ -382,6 +359,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				
 				// Tracker les gares déjà ajoutées par nom et ligne
 				const stopsByNameAndLine = new Map();
+				let startTime = performance.now();
 				
 				// Parcourir toutes les gares
 				for (const feature of garesFeatures) {
@@ -502,11 +480,18 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						} else if (stopCodeUicValues.length > 0) {
 							stopCodeUicValues.forEach((value) => existingStop.stopCodeUics.add(value));
 						}
+						
+						// Yield conditionnel
+						if (performance.now() - startTime > 16) {
+							await new Promise(resolve => setTimeout(resolve, 0));
+							startTime = performance.now();
+						}
 					}
 				}
 				
 				// Créer les markers
-    for (const [, stopData] of stopsByNameAndLine) {
+				startTime = performance.now();
+    			for (const [, stopData] of stopsByNameAndLine) {
 					const { line, stopName, monitoringRef, stopCodeUic, dataSource, exploitant, lat, lng } = stopData;
 					const mergedStopCodeUic =
 						stopData.stopCodeUics && stopData.stopCodeUics.size > 0
@@ -553,9 +538,9 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 					
 					stopsLoaded++;
 					
-					if (stopsLoaded % 100 === 0) {
-						console.log(`Gares: ${stopsLoaded}...`);
-						await new Promise(resolve => setTimeout(resolve, 5));
+					if (performance.now() - startTime > 16) {
+						await new Promise(resolve => setTimeout(resolve, 0));
+						startTime = performance.now();
 					}
 				}
 				
