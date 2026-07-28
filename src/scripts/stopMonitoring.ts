@@ -490,11 +490,15 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 		
 		// Détails déroulables
 		const detailsDiv = document.createElement('div');
-		detailsDiv.className = 'overflow-hidden border-t border-amber-200/80 text-xs text-slate-700 transition-[max-height,opacity] duration-300 ease-in-out';
+		detailsDiv.className = 'overflow-hidden text-xs text-slate-700 transition-[max-height,opacity] duration-300 ease-in-out';
 		detailsDiv.id = detailsId;
 		detailsDiv.style.maxHeight = '0px';
 		detailsDiv.style.opacity = '0';
 		detailsDiv.dataset.expanded = 'false';
+
+		const detailsInner = document.createElement('div');
+		detailsInner.className = 'border-t border-amber-200/80';
+		detailsDiv.appendChild(detailsInner);
 
 		if (disruption.updatedAt) {
 			const dateStr = disruption.updatedAt;
@@ -507,7 +511,7 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 			const updatedAtDiv = document.createElement('div');
 			updatedAtDiv.className = 'text-[10px] font-medium text-slate-500 m-2';
 			updatedAtDiv.textContent = `Dernière mise à jour : ${day}/${month}/${year} ${hour}:${minute}`;
-			detailsDiv.appendChild(updatedAtDiv);
+			detailsInner.appendChild(updatedAtDiv);
 		}
 		
 		// Message web en HTML (si disponible)
@@ -522,7 +526,7 @@ function generateDisruptionsElement(disruptions: Disruption[]): HTMLElement | nu
 				webDiv.innerHTML = disruption.webText;
 			}
 			
-			detailsDiv.appendChild(webDiv);
+			detailsInner.appendChild(webDiv);
 		}
 
 		if (wasExpanded) {
