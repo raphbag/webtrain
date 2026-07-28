@@ -34,12 +34,9 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 		key: googleMapsApiKey,
 		v: "weekly"
 	});
-
-	// URLs des endpoints serveur (obsolète, remplacé par les appels spécifiques API Routes)
-	// Déclarations supprimées
 	
 	// Configuration
-	const REFRESH_INTERVAL_MS = 30000; // Intervalle d'actualisation en millisecondes (10 secondes)
+	const REFRESH_INTERVAL_MS = 30000; // Intervalle d'actualisation en millisecondes
 	const MIN_ZOOM_FOR_STOPS = 14; // Zoom minimum pour afficher les arrêts (13 = vue région, 15 = très zoomé)
 	const LONG_DISTANCE_FAMILIES = new Set(['TER', 'Intercités', 'TGV', 'Grandes lignes']);
 	
@@ -125,7 +122,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 
 		// Créer la carte en 3D
 		map = new Map(document.getElementById("map"), {
-			zoom: 17,
+			zoom: 13,
 			center: position,
 			mapId: "768ca61f157a15a0673bb1ed",
 			mapTypeId: 'terrain',
@@ -307,8 +304,6 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 				console.log('📡 Traitement des gares...');
 				await loadStops(globalStopsPromises);
 				
-				// Ajuster la vue pour afficher toutes les lignes
-				map.fitBounds(bounds);
 				
 				// Créer l'interface de filtres via le composant
 				if (window.buildFilterUI) {
