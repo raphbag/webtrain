@@ -6,18 +6,10 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 ---
 
 <script>
-
-	import { fetchStopSchedules, generateSchedulesElement, fetchLineDisruptions } from '../scripts/stopMonitoring';
-	
-	// Exposer globalement pour utilisation dans le code inline
-	// @ts-ignore
+	// Chargement dynamique pour alléger le parsing initial
 	if (typeof window !== 'undefined') {
 		// @ts-ignore
-		window.fetchStopSchedules = fetchStopSchedules;
-		// @ts-ignore
-		window.generateSchedulesElement = generateSchedulesElement;
-		// @ts-ignore
-		window.fetchLineDisruptions = fetchLineDisruptions;
+		window.getStopMonitoring = () => import('../scripts/stopMonitoring');
 	}
 </script>
 
@@ -292,7 +284,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						
 						// Yield pour ne pas bloquer le thread principal si on prend plus de 16ms
 						if (performance.now() - startTime > 16) {
-							await new Promise(resolve => setTimeout(resolve, 0));
+							await new Promise(resolve => setTimeout(resolve, 5));
 							startTime = performance.now();
 						}
 					}
@@ -478,7 +470,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						
 						// Yield conditionnel
 						if (performance.now() - startTime > 16) {
-							await new Promise(resolve => setTimeout(resolve, 0));
+							await new Promise(resolve => setTimeout(resolve, 5));
 							startTime = performance.now();
 						}
 					}
@@ -767,9 +759,12 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 						const useStopPoint = line.routeType !== 'Métro' && line.routeType !== 'Tram';
 						const idRefZdA = lineSource === 'idfm' && useStopPoint ? monitoringRef.split(':')[3] : null;
 						
+						// Charger dynamiquement le module pour exécuter les requêtes
+						const { fetchStopSchedules, fetchLineDisruptions, generateSchedulesElement } = await window.getStopMonitoring();
+						
 						// Charger horaires et perturbations en parallèle
 						const [allSchedules, disruptions] = await Promise.all([
-							window.fetchStopSchedules(
+							fetchStopSchedules(
 								monitoringRef,
 								line.originalRouteId,
 								line.routeType,
@@ -778,7 +773,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 								lineSource,
 								properties.stop_code_uic || null
 							),
-							window.fetchLineDisruptions(
+							fetchLineDisruptions(
 								line.originalRouteId,
 								idRefZdA,
 								line.routeType,
@@ -799,7 +794,7 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 							return;
 						}
 						
-						const schedulesElement = window.generateSchedulesElement(allSchedules, line.routeType, disruptions);
+						const schedulesElement = generateSchedulesElement(allSchedules, line.routeType, disruptions);
 						schedulesContainer.innerHTML = '';
 						schedulesContainer.appendChild(schedulesElement);
 					} catch (error) {
@@ -980,5 +975,15 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 	// Exposer la fonction updateStopsVisibility globalement pour le FilterPanel
 	window.updateStopsVisibility = updateStopsVisibility;
 
-	initMap();
+	// Différer l'initialisation de la carte pour améliorer le temps de rendu initial (LCP et FCP)
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', initMap);
+	} else {
+		// requestIdleCallback permet au thread principal de respirer avant de bloquer sur l'initialisation
+		if ('requestIdleCallback' in window) {
+			window.requestIdleCallback(() => initMap());
+		} else {
+			setTimeout(initMap, 100);
+		}
+	}
 </script>
