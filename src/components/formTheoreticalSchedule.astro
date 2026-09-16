@@ -1,0 +1,619 @@
+---
+// src/components/formTheoreticalSchedule.astro
+---
+<div class="max-w-2xl mx-auto p-6 bg-slate-800/80 rounded-2xl shadow-xl mt-10">
+    <h2 class="text-2xl font-bold text-white mb-6">Recherche d'horaires théoriques</h2>
+
+    <form id="theoreticalForm" class="space-y-6">
+        <!-- Étape 1 : Choisir la Gare -->
+        <div class="relative">
+            <label for="gare" class="block text-sm font-medium text-white/90">Gare de départ</label>
+            <input type="text" id="gare" name="gare" required autocomplete="off"
+                placeholder="Tapez pour rechercher (ex: Châtelet, Melun...)"
+                class="mt-1 block w-full rounded-md border border-gray-600 bg-slate-700 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 outline-none" />
+            <input type="hidden" id="gareId" name="gareId" />
+            <ul id="gareResults" class="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-md bg-slate-600 py-1 text-base shadow-lg hidden">
+            </ul>
+        </div>
+
+        <!-- Étape 2 : Choisir la Ligne (apparait après sélection de la gare) -->
+        <div id="ligneSection" class="hidden transition-opacity duration-300 opacity-0 relative">
+            <label class="block text-sm font-medium text-white/90 mb-2">Ligne</label>
+            <input type="hidden" id="ligneId" name="ligneId" required />
+            <div id="lignesContainer" class="flex flex-wrap gap-3">
+                <!-- Les lignes (picto) seront injectées ici -->
+            </div>
+            <p id="ligneSelectionError" class="text-red-400 text-sm mt-2 hidden">Veuillez sélectionner une ligne.</p>
+        </div>
+
+        <!-- Étape 3 : Options de trajet -->
+        <div id="optionsSection" class="hidden transition-opacity duration-300 opacity-0 space-y-5">
+            <div>
+                <label for="datetime" class="block text-sm font-medium text-white/90">Date et heure</label>
+                <input type="datetime-local" id="datetime" name="datetime" required
+                    class="mt-1 block w-full rounded-md border border-gray-600 bg-slate-700 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 outline-none" />
+            </div>
+
+            <div class="relative">
+                <label for="destination" class="block text-sm font-medium text-white/90">Destination (Optionnel)</label>
+                <input type="text" id="destination" name="destination" autocomplete="off"
+                    placeholder="Ex: Paris Gare de Lyon, Goussainville, Poissy..."
+                    class="mt-1 block w-full rounded-md border border-gray-600 bg-slate-700 text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2.5 outline-none" />
+                <ul id="destinationResults" class="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md bg-slate-600 py-1 text-base shadow-lg hidden">
+                </ul>
+                <p class="text-xs text-slate-400 mt-1">Filtre uniquement les trains qui desservent cette gare après votre départ (terminus ou arrêt intermédiaire).</p>
+            </div>
+
+            <button type="submit" id="submitBtn" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
+                Rechercher les horaires
+            </button>
+        </div>
+    </form>
+
+    <div id="resultsContainer" class="mt-8 hidden">
+        <h3 class="text-xl font-bold text-white mb-4">Prochains départs (Théoriques)</h3>
+        <div id="loadingIndicator" class="text-white text-center hidden py-4">Recherche en cours...</div>
+        <div id="errorMessage" class="text-red-400 text-center hidden py-4"></div>
+        <div id="resultsList" class="space-y-3">
+        </div>
+    </div>
+</div>
+
+<script>
+    interface LigneInfo {
+        id: string;
+        name: string;
+        icon: string | null;
+    }
+
+    interface GareInfo {
+        id: string;
+        name: string;
+        lines: LigneInfo[];
+    }
+
+    interface StopInfo {
+        id: string;
+        name: string;
+        stop_area_id?: string;
+        stop_area_name?: string;
+        arrival_time?: string;
+        departure_time?: string;
+    }
+
+    let gares: GareInfo[] = [];
+    let selectedGareName = '';
+    let selectedGareId = '';
+    let selectedLineId = '';
+
+    function removeAccents(str: string): string {
+        return (str || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+    }
+
+    function matchesStation(stationNameOrId: string, query: string): boolean {
+        if (!stationNameOrId || !query) return false;
+        const normTarget = removeAccents(stationNameOrId.toLowerCase().trim());
+        const normQuery = removeAccents(query.toLowerCase().trim());
+
+        if (normTarget.includes(normQuery) || normQuery.includes(normTarget)) {
+            return true;
+        }
+
+        const queryTokens = normQuery
+            .split(/[\s,/-]+/)
+            .filter(w => w.length >= 3 && !['vers', 'gare', 'les', 'des', 'aux', 'sur', 'sous', 'saint', 'sainte'].includes(w));
+
+        if (queryTokens.length > 0 && queryTokens.every(token => normTarget.includes(token))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    async function fetchData() {
+        try {
+            const garesRes = await fetch('/api/idfm/gares.json');
+            if (garesRes.ok) {
+                const data = await garesRes.json() as {
+                    features?: Array<{
+                        properties: {
+                            id_ref_zdc?: string | number;
+                            nom_gares?: string;
+                            nom_zdc?: string;
+                            idrefligc?: string;
+                            res_com?: string;
+                            indice_lig?: string;
+                            picto?: { url?: string };
+                        };
+                    }>;
+                };
+                const rawGares = data.features || [];
+
+                const garesMap = new Map<string, GareInfo>();
+
+                for (const feature of rawGares) {
+                    const props = feature.properties;
+                    if (!props.id_ref_zdc) continue;
+
+                    const gareId = String(props.id_ref_zdc);
+                    if (!garesMap.has(gareId)) {
+                        garesMap.set(gareId, {
+                            id: gareId,
+                            name: props.nom_gares || props.nom_zdc || gareId,
+                            lines: []
+                        });
+                    }
+
+                    const gareData = garesMap.get(gareId)!;
+
+                    if (props.idrefligc) {
+                        if (!gareData.lines.some(l => l.id === props.idrefligc)) {
+                            gareData.lines.push({
+                                id: props.idrefligc,
+                                name: props.res_com || props.indice_lig || '',
+                                icon: props.picto?.url || null
+                            });
+                        }
+                    }
+                }
+
+                gares = Array.from(garesMap.values());
+            }
+        } catch(e) {
+            console.error('Erreur de chargement du referentiel des gares', e);
+        }
+    }
+
+    function setupGareAutocomplete() {
+        const input = document.getElementById('gare') as HTMLInputElement;
+        const hidden = document.getElementById('gareId') as HTMLInputElement;
+        const results = document.getElementById('gareResults');
+        const ligneSection = document.getElementById('ligneSection');
+        const optionsSection = document.getElementById('optionsSection');
+        const ligneIdInput = document.getElementById('ligneId') as HTMLInputElement;
+
+        if (!input || !results || !hidden) return;
+
+        input.addEventListener('input', (e) => {
+            const val = removeAccents((e.target as HTMLInputElement).value.toLowerCase());
+            if (val.length < 2) {
+                results.classList.add('hidden');
+                return;
+            }
+
+            const matches = gares.filter(gare => {
+                return removeAccents(gare.name.toLowerCase()).includes(val);
+            }).slice(0, 10);
+
+            results.innerHTML = '';
+            if (matches.length > 0) {
+                matches.forEach(match => {
+                    const li = document.createElement('li');
+                    li.className = 'cursor-pointer px-4 py-2 hover:bg-slate-500 text-white text-sm';
+                    li.textContent = match.name;
+                    li.addEventListener('click', () => {
+                        input.value = match.name;
+                        hidden.value = match.id;
+                        selectedGareName = match.name;
+                        selectedGareId = match.id;
+                        results.classList.add('hidden');
+
+                        renderLines(match.lines);
+
+                        if (ligneSection) {
+                            ligneSection.classList.remove('hidden');
+                            setTimeout(() => ligneSection.classList.remove('opacity-0'), 10);
+                        }
+
+                        ligneIdInput.value = '';
+                        selectedLineId = '';
+                        if (optionsSection) {
+                            optionsSection.classList.add('opacity-0');
+                            setTimeout(() => optionsSection.classList.add('hidden'), 300);
+                        }
+                    });
+                    results.appendChild(li);
+                });
+                results.classList.remove('hidden');
+            } else {
+                results.classList.add('hidden');
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (e.target !== input && e.target !== results) {
+                results.classList.add('hidden');
+            }
+        });
+    }
+
+    function setupDestinationAutocomplete() {
+        const input = document.getElementById('destination') as HTMLInputElement;
+        const results = document.getElementById('destinationResults');
+        if (!input || !results) return;
+
+        input.addEventListener('input', (e) => {
+            const val = removeAccents((e.target as HTMLInputElement).value.toLowerCase().trim());
+            if (val.length < 2) {
+                results.classList.add('hidden');
+                return;
+            }
+
+            // Suggest stations that serve the currently selected line if any, or all stations
+            const pool = selectedLineId
+                ? gares.filter(g => g.lines.some(l => l.id === selectedLineId))
+                : gares;
+
+            const matches = pool.filter(g => removeAccents(g.name.toLowerCase()).includes(val)).slice(0, 8);
+
+            results.innerHTML = '';
+            if (matches.length > 0) {
+                matches.forEach(match => {
+                    const li = document.createElement('li');
+                    li.className = 'cursor-pointer px-4 py-2 hover:bg-slate-500 text-white text-sm';
+                    li.textContent = match.name;
+                    li.addEventListener('click', () => {
+                        input.value = match.name;
+                        results.classList.add('hidden');
+                    });
+                    results.appendChild(li);
+                });
+                results.classList.remove('hidden');
+            } else {
+                results.classList.add('hidden');
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (e.target !== input && e.target !== results) {
+                results.classList.add('hidden');
+            }
+        });
+    }
+
+    function renderLines(lines: LigneInfo[]) {
+        const container = document.getElementById('lignesContainer');
+        const ligneIdInput = document.getElementById('ligneId') as HTMLInputElement;
+        const optionsSection = document.getElementById('optionsSection');
+        const ligneSelectionError = document.getElementById('ligneSelectionError');
+
+        if (!container) return;
+
+        container.innerHTML = '';
+
+        if (lines.length === 0) {
+            container.innerHTML = '<span class="text-slate-400 text-sm">Aucune ligne trouvée pour cette gare.</span>';
+            return;
+        }
+
+        lines.sort((a, b) => a.name.localeCompare(b.name));
+
+        lines.forEach(ligne => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'line-btn flex items-center justify-center p-2 rounded-lg border-2 border-slate-600 bg-slate-700 hover:bg-slate-600 hover:border-blue-400 transition-all cursor-pointer ring-0';
+            btn.dataset.ligneId = ligne.id;
+            btn.title = ligne.name;
+
+            if (ligne.icon) {
+                btn.innerHTML = `<img src="${ligne.icon}" alt="${ligne.name}" class="h-8 w-8 object-contain drop-shadow-md" />`;
+            } else {
+                btn.innerHTML = `<span class="text-white font-bold px-2">${ligne.name}</span>`;
+            }
+
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.line-btn').forEach(b => {
+                    b.classList.remove('border-blue-500', 'bg-slate-600', 'ring-2', 'ring-blue-500/50');
+                    b.classList.add('border-slate-600');
+                });
+
+                btn.classList.add('border-blue-500', 'bg-slate-600', 'ring-2', 'ring-blue-500/50');
+                btn.classList.remove('border-slate-600');
+
+                if (ligneIdInput) ligneIdInput.value = ligne.id;
+                selectedLineId = ligne.id;
+
+                if (ligneSelectionError) ligneSelectionError.classList.add('hidden');
+
+                if (optionsSection) {
+                    optionsSection.classList.remove('hidden');
+                    setTimeout(() => optionsSection.classList.remove('opacity-0'), 10);
+                }
+            });
+
+            container.appendChild(btn);
+        });
+    }
+
+    function formatTime(timeStr: string) {
+        if (!timeStr) return '';
+        if (timeStr.length === 6) {
+            return `${timeStr.slice(0, 2)}:${timeStr.slice(2, 4)}`;
+        }
+        if (timeStr.length === 15) {
+            return `${timeStr.slice(9, 11)}:${timeStr.slice(11, 13)}`;
+        }
+        const d = new Date(timeStr);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        }
+        return timeStr;
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        const datetimeInput = document.getElementById('datetime') as HTMLInputElement;
+        if (datetimeInput) {
+            const now = new Date();
+            now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+            datetimeInput.value = now.toISOString().slice(0, 16);
+        }
+
+        setupGareAutocomplete();
+        setupDestinationAutocomplete();
+        await fetchData();
+
+        const form = document.getElementById('theoreticalForm');
+        form?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const gareInput = document.getElementById('gare') as HTMLInputElement;
+            const gareId = (document.getElementById('gareId') as HTMLInputElement)?.value;
+            const ligneId = (document.getElementById('ligneId') as HTMLInputElement)?.value;
+            const dtValue = (document.getElementById('datetime') as HTMLInputElement)?.value;
+            const rawDestination = (document.getElementById('destination') as HTMLInputElement)?.value.trim() || "";
+
+            const departureStationName = gareInput?.value.trim() || selectedGareName;
+            const departureStationId = gareId || selectedGareId;
+
+            const ligneSelectionError = document.getElementById('ligneSelectionError');
+
+            if (!departureStationId) {
+                alert("Veuillez d'abord sélectionner une gare valide.");
+                return;
+            }
+            if (!ligneId) {
+                if (ligneSelectionError) ligneSelectionError.classList.remove('hidden');
+                return;
+            }
+
+            const dtObj = new Date(dtValue);
+            const pad = (n: number) => n.toString().padStart(2, '0');
+            const localDtStr = `${dtObj.getFullYear()}${pad(dtObj.getMonth()+1)}${pad(dtObj.getDate())}T${pad(dtObj.getHours())}${pad(dtObj.getMinutes())}${pad(dtObj.getSeconds())}`;
+
+            const container = document.getElementById('resultsContainer');
+            const loading = document.getElementById('loadingIndicator');
+            const error = document.getElementById('errorMessage');
+            const list = document.getElementById('resultsList');
+
+            container?.classList.remove('hidden');
+            loading?.classList.remove('hidden');
+            error?.classList.add('hidden');
+            if (list) list.innerHTML = '';
+
+            try {
+                const res = await fetch(`/api/idfm/theoriques.json?stopArea=${encodeURIComponent(departureStationId)}&line=${encodeURIComponent(ligneId)}&dateTime=${encodeURIComponent(localDtStr)}`);
+                if (!res.ok) {
+                    throw new Error("Erreur de l'API lors de la récupération des horaires.");
+                }
+                const json = await res.json() as {
+                    departures?: any[];
+                    vehicle_journeys_map?: Record<string, StopInfo[]>;
+                };
+
+                loading?.classList.add('hidden');
+
+                const rawDepartures = json.departures || [];
+                const vehicleJourneysMap: Record<string, StopInfo[]> = json.vehicle_journeys_map || {};
+
+                // Filter departures topologically to only keep valid departures going forward from departure station
+                const filtered = rawDepartures.filter((d: any) => {
+                    const vjId = d.links?.find((l: any) => l.type === 'vehicle_journey')?.id;
+                    const stops: StopInfo[] = d.stop_times || (vjId ? vehicleJourneysMap[vjId] : []) || [];
+                    const direction = d.display_informations?.direction || '';
+
+                    // 1. Exclude trains terminating at departure station (reverse direction / trains arriving here)
+                    if (matchesStation(direction, departureStationName)) {
+                        return false;
+                    }
+
+                    // 2. Find departure station index in the ordered vehicle journey stops
+                    let idxDep = -1;
+                    if (stops.length > 0) {
+                        idxDep = stops.findIndex(s => s.stop_area_id === departureStationId || s.id === departureStationId);
+                        if (idxDep === -1) {
+                            idxDep = stops.findIndex(s => matchesStation(s.name, departureStationName) || matchesStation(s.stop_area_name || '', departureStationName));
+                        }
+                    }
+
+                    // If stops are known and departure station is the last stop of the mission, exclude
+                    if (stops.length > 0 && idxDep !== -1 && idxDep === stops.length - 1) {
+                        return false;
+                    }
+
+                    // Downstream stops for this specific departure (from departure station to terminus)
+                    const downstreamStops = (idxDep >= 0 && stops.length > 0)
+                        ? stops.slice(idxDep + 1)
+                        : [];
+
+                    // 3. If destination filter is provided
+                    if (rawDestination) {
+                        // Cannot travel to departure station
+                        if (matchesStation(rawDestination, departureStationName)) {
+                            return false;
+                        }
+
+                        if (downstreamStops.length > 0) {
+                            const matchesDownstream = downstreamStops.some(s =>
+                                matchesStation(s.name, rawDestination) ||
+                                matchesStation(s.stop_area_name || '', rawDestination)
+                            );
+                            return matchesDownstream || matchesStation(direction, rawDestination);
+                        } else {
+                            return matchesStation(direction, rawDestination);
+                        }
+                    }
+
+                    return true;
+                });
+
+                if (filtered.length === 0) {
+                    if (list) list.innerHTML = '<div class="text-white text-center py-6 bg-slate-700/50 rounded-lg">Aucun départ trouvé correspondant à ces critères.</div>';
+                    return;
+                }
+
+                filtered.forEach((dep: any) => {
+                    const info = dep.display_informations || {};
+                    const stopDt = dep.stop_date_time || {};
+                    const departureTime = formatTime(stopDt.departure_date_time);
+                    const direction = info.direction || 'Direction inconnue';
+                    const headsign = info.headsign || info.code || '';
+                    const vjId = dep.links?.find((l: any) => l.type === 'vehicle_journey')?.id;
+                    const journeyStops: StopInfo[] = dep.stop_times || (vjId ? vehicleJourneysMap[vjId] : []) || [];
+
+                    // Find departure station index
+                    let idxDep = -1;
+                    if (journeyStops.length > 0) {
+                        idxDep = journeyStops.findIndex(s => s.stop_area_id === departureStationId || s.id === departureStationId);
+                        if (idxDep === -1) {
+                            idxDep = journeyStops.findIndex(s => matchesStation(s.name, departureStationName) || matchesStation(s.stop_area_name || '', departureStationName));
+                        }
+                    }
+
+                    const downstreamStops = (idxDep >= 0 && journeyStops.length > 0)
+                        ? journeyStops.slice(idxDep + 1)
+                        : [];
+
+                    const isIntermediateMatch = rawDestination &&
+                        !matchesStation(direction, rawDestination) &&
+                        downstreamStops.some(s => matchesStation(s.name, rawDestination) || matchesStation(s.stop_area_name || '', rawDestination));
+
+                    const downstreamCount = downstreamStops.length;
+                    const stopCountLabel = downstreamCount > 0 ? `${downstreamCount} arrêt${downstreamCount > 1 ? 's' : ''}` : '';
+
+                    const el = document.createElement('div');
+                    el.className = 'bg-slate-700/90 rounded-xl border border-slate-600/70 shadow-md hover:border-slate-500 transition-all overflow-hidden';
+
+                    // Generate timeline HTML
+                    let timelineHtml = '';
+                    if (journeyStops.length > 0) {
+                        timelineHtml = journeyStops.map((s, idx) => {
+                            const isDeparture = idx === idxDep;
+                            const isPast = idxDep !== -1 && idx < idxDep;
+                            const isTerminus = idx === journeyStops.length - 1;
+                            const isDestination = rawDestination && !isDeparture && (matchesStation(s.name, rawDestination) || matchesStation(s.stop_area_name || '', rawDestination));
+                            const stopTime = formatTime(s.departure_time || s.arrival_time || '');
+
+                            let dotClasses = 'w-2.5 h-2.5 rounded-full bg-slate-400 border border-slate-600';
+                            let textClasses = 'text-slate-200 text-sm';
+                            let badge = '';
+
+                            if (isDeparture) {
+                                dotClasses = 'w-3.5 h-3.5 rounded-full bg-blue-500 ring-4 ring-blue-500/25 border-2 border-white';
+                                textClasses = 'text-white font-bold text-sm md:text-base';
+                                badge = '<span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-900/80 text-blue-300 border border-blue-500/40">Départ</span>';
+                            } else if (isDestination) {
+                                dotClasses = 'w-3.5 h-3.5 rounded-full bg-emerald-500 ring-4 ring-emerald-500/30 border-2 border-emerald-200';
+                                textClasses = 'text-emerald-300 font-bold text-sm md:text-base';
+                                badge = '<span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/50">Destination</span>';
+                            } else if (isTerminus) {
+                                dotClasses = 'w-3 h-3 rounded-full bg-amber-400 ring-4 ring-amber-400/20 border-2 border-white';
+                                textClasses = 'text-white font-semibold text-sm';
+                                badge = '<span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/40">Terminus</span>';
+                            }
+
+                            return `
+                                <div class="relative flex items-center justify-between py-1.5 ${isPast ? 'opacity-60' : ''}">
+                                    <div class="absolute -left-[19px] top-1/2 -translate-y-1/2 flex items-center justify-center">
+                                        <div class="${dotClasses}"></div>
+                                    </div>
+                                    <div class="flex items-center gap-2 pl-2">
+                                        <span class="${textClasses}">${s.name || s.stop_area_name}</span>
+                                        ${badge}
+                                    </div>
+                                    ${stopTime ? `<span class="text-xs ${isDeparture ? 'text-blue-300 font-bold' : isDestination ? 'text-emerald-300 font-bold' : 'text-slate-400'} font-mono">${stopTime}</span>` : ''}
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        timelineHtml = '<div class="text-slate-400 text-xs py-2">Détail des arrêts non disponible pour cette mission.</div>';
+                    }
+
+                    el.innerHTML = `
+                        <div class="card-header p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 cursor-pointer select-none hover:bg-slate-600/30 transition-colors">
+                            <div class="flex items-center space-x-4">
+                                <div class="flex flex-col items-center justify-center bg-slate-800/80 px-3 py-2 rounded-lg border border-slate-600/50 min-w-[70px]">
+                                    <span class="font-bold text-blue-400 text-lg md:text-xl tracking-tight">${departureTime}</span>
+                                </div>
+                                <div class="flex flex-col">
+                                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                                        ${headsign ? `
+                                            <span class="text-xs font-bold px-2 py-0.5 rounded bg-slate-800 text-amber-300 border border-amber-500/40">
+                                                ${headsign}
+                                            </span>
+                                        ` : ''}
+                                        ${info.network ? `
+                                            <span class="text-xs font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-600/60">
+                                                ${info.network}
+                                            </span>
+                                        ` : ''}
+                                        ${isIntermediateMatch ? `
+                                            <span class="text-xs font-medium px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-700/50 flex items-center gap-1">
+                                                <span>✓</span> Dessert : ${rawDestination}
+                                            </span>
+                                        ` : ''}
+                                    </div>
+                                    <span class="text-white text-sm md:text-base font-semibold" title="${direction}">
+                                        Terminus : ${direction}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between sm:justify-end gap-3 text-slate-400 text-xs sm:text-sm font-medium">
+                                ${stopCountLabel ? `<span>${stopCountLabel}</span>` : ''}
+                                <svg class="chevron-icon w-5 h-5 text-slate-400 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                                </svg>
+                            </div>
+                        </div>
+
+                        <!-- Journey Details (Accordion) -->
+                        <div class="detail-section hidden border-t border-slate-600/50 bg-slate-800/70 p-4 sm:p-5">
+                            <div class="flex items-center justify-between mb-3">
+                                <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Arrêts desservis (${journeyStops.length})</h4>
+                                ${headsign ? `<span class="text-xs text-amber-300/80 font-mono">Mission : ${headsign}</span>` : ''}
+                            </div>
+                            <div class="relative pl-6 my-2 before:absolute before:left-[11px] before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-600">
+                                ${timelineHtml}
+                            </div>
+                        </div>
+                    `;
+
+                    // Toggle accordion on card header click
+                    const cardHeader = el.querySelector('.card-header');
+                    const detailSection = el.querySelector('.detail-section');
+                    const chevron = el.querySelector('.chevron-icon');
+
+                    cardHeader?.addEventListener('click', () => {
+                        const isHidden = detailSection?.classList.contains('hidden');
+                        if (isHidden) {
+                            detailSection?.classList.remove('hidden');
+                            chevron?.classList.add('rotate-180');
+                        } else {
+                            detailSection?.classList.add('hidden');
+                            chevron?.classList.remove('rotate-180');
+                        }
+                    });
+
+                    list?.appendChild(el);
+                });
+
+            } catch (err: any) {
+                loading?.classList.add('hidden');
+                if (error) {
+                    error.classList.remove('hidden');
+                    error.textContent = err.message;
+                }
+            }
+        });
+    });
+</script>
