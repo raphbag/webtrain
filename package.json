@@ -11,14 +11,14 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^14.3.1",
-    "@astrojs/node": "^11.1.5",
+    "@astrojs/cloudflare": "^14.3.2",
+    "@astrojs/node": "^11.1.6",
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^25.9.7",
-    "astro": "^7.3.2",
-    "tailwindcss": "^4.3.0"
+    "astro": "^7.3.3",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
-    "wrangler": "^4.97.0"
+    "wrangler": "^4.133.0"
   }
 }
