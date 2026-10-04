@@ -127,17 +127,16 @@ const googleMapsApiKey = env.PUBLIC_GOOGLE_MAPS_API_KEY;
 			tiltInteractionEnabled: true,
 			colorScheme: ColorScheme.DARK,
 			mapTypeControlOptions: {
-				position: window.innerWidth <= 768 ? google.maps.ControlPosition.BOTTOM_CENTER : google.maps.ControlPosition.TOP_RIGHT,
+				position: google.maps.ControlPosition.RIGHT_BOTTOM,
 				mapTypeIds: ['terrain', 'satellite']
 			},
 		});
 
 		// Gérer les changements de taille d'écran
 		window.addEventListener('resize', () => {
-			const newPosition = window.innerWidth <= 768 ? google.maps.ControlPosition.BOTTOM_CENTER : google.maps.ControlPosition.TOP_RIGHT;
 			map.setOptions({
 				mapTypeControlOptions: {
-					position: newPosition,
+					position: google.maps.ControlPosition.RIGHT_BOTTOM,
 					mapTypeIds: ['terrain', 'satellite']
 				}
 			});
